@@ -1,0 +1,17 @@
+{
+  "name": "kyo-sushi",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:cliente": "npm run dev -w @kyo/cliente",
+    "dev:panel": "npm run dev -w @kyo/panel",
+    "dev:cocina": "npm run dev -w @kyo/cocina",
+    "build": "npm run build:cliente && npm run build:panel && npm run build:cocina",
+    "build:cliente": "npm run build -w @kyo/cliente",
+    "build:panel": "npm run build -w @kyo/panel",
+    "build:cocina": "npm run build -w @kyo/cocina"
+  }
+}
