@@ -1,7 +1,7 @@
 import React, {useEffect,useState} from 'react'
 import { AdminPanel, AdminGate } from './AdminPanel.jsx'
 import { supabase, supabaseConfigured } from './supabase'
-import { fallbackProducts, fallbackCategories, fallbackBranches } from './data'
+import { fallbackProducts, fallbackCategories, branches as fallbackBranches } from './data'
 
 const defaultBusinessHours={
   mon:{closed:true,open:'13:00',close:'21:00'},tue:{closed:false,open:'13:00',close:'21:00'},
