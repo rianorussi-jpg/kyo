@@ -100,6 +100,9 @@ function AdminSettings({catalog}){
   const [pointsBusy,setPointsBusy]=useState(false)
   const [pointsMessage,setPointsMessage]=useState('')
   const [businessHours,setBusinessHours]=useState(catalog.settings?.business_hours||defaultBusinessHours)
+  const [imageOptimizeBusy,setImageOptimizeBusy]=useState(false)
+  const [imageOptimizeProgress,setImageOptimizeProgress]=useState({done:0,total:0})
+  const [imageOptimizeMessage,setImageOptimizeMessage]=useState('')
 
   useEffect(()=>{
     setMinimum(catalog.settings?.minimum_order||200)
@@ -140,6 +143,54 @@ function AdminSettings({catalog}){
     setPointsAmount('')
   }
 
+  const optimizeExistingImages=async()=>{
+    if(imageOptimizeBusy)return
+    const candidates=(catalog.products||[]).filter(p=>storagePathFromPublicUrl(p.image_url||p.image))
+    if(!candidates.length){
+      setImageOptimizeMessage('No encontramos imágenes de productos en Supabase Storage para optimizar.')
+      return
+    }
+
+    if(!confirm(`Se optimizarán ${candidates.length} imágenes existentes a WebP y máximo 1200 px. ¿Continuar?`))return
+
+    setImageOptimizeBusy(true)
+    setImageOptimizeMessage('')
+    setImageOptimizeProgress({done:0,total:candidates.length})
+
+    let optimized=0
+    let skipped=0
+    let failed=0
+    let originalBytes=0
+    let optimizedBytes=0
+
+    for(let i=0;i<candidates.length;i++){
+      const product=candidates[i]
+      try{
+        const result=await optimizeExistingProductImage(product)
+        if(result.skipped)skipped++
+        else{
+          optimized++
+          originalBytes+=result.originalBytes||0
+          optimizedBytes+=result.optimizedBytes||0
+        }
+      }catch(error){
+        console.error('Image optimization failed',product?.name,error)
+        failed++
+      }
+      setImageOptimizeProgress({done:i+1,total:candidates.length})
+    }
+
+    await catalog.refresh()
+    setImageOptimizeBusy(false)
+
+    const before=(originalBytes/1024/1024).toFixed(1)
+    const after=(optimizedBytes/1024/1024).toFixed(1)
+    const saved=originalBytes>0?Math.max(0,Math.round((1-optimizedBytes/originalBytes)*100)):0
+    setImageOptimizeMessage(
+      `Listo: ${optimized} optimizadas${skipped?`, ${skipped} omitidas`:''}${failed?`, ${failed} con error`:''}. ${before} MB → ${after} MB (${saved}% menos).`
+    )
+  }
+
   const updateBusinessDay=(day,field,value)=>{
     setBusinessHours(prev=>({...prev,[day]:{...(prev[day]||defaultBusinessHours[day]),[field]:value}}))
   }
@@ -163,6 +214,21 @@ function AdminSettings({catalog}){
         </div>})}
       </div>
       <small className="business-timezone-note">Zona horaria fija: America/Mexico_City (CDMX)</small>
+    </section>
+
+    <section className="admin-settings-card">
+      <div className="settings-card-head"><span><Upload/></span><div><small>IMÁGENES DEL MENÚ</small><h2>Optimización de fotografías</h2><p>Las fotos nuevas se guardan automáticamente como WebP, a máximo 1200 px y con compresión para que el menú cargue más rápido.</p></div></div>
+      <div className="image-optimizer-box">
+        <div>
+          <strong>Optimizar imágenes existentes</strong>
+          <small>Convierte las fotografías que ya subiste desde el Panel. Las imágenes originales solo se borran después de actualizar correctamente el producto.</small>
+        </div>
+        <button type="button" className="primary image-optimize-btn" disabled={imageOptimizeBusy} onClick={optimizeExistingImages}>
+          {imageOptimizeBusy?`Optimizando ${imageOptimizeProgress.done}/${imageOptimizeProgress.total}`:'Optimizar imágenes existentes'}
+        </button>
+      </div>
+      {imageOptimizeBusy&&<div className="image-optimize-progress"><i style={{width:`${imageOptimizeProgress.total?Math.round(imageOptimizeProgress.done/imageOptimizeProgress.total*100):0}%`}}/></div>}
+      {imageOptimizeMessage&&<div className="admin-points-message">{imageOptimizeMessage}</div>}
     </section>
 
     <section className="admin-settings-card">
@@ -279,36 +345,89 @@ function CategoryManager({catalog}){
 
 function CategoryEditRow({row,parents,update,save,remove,child=false}){return <div className={`category-edit-row ${child?'child':''}`}><div className="category-level">{child?'SUBCATEGORÍA':'CATEGORÍA'}</div><input className="category-name-input" value={row.name} onChange={e=>update(row.id,'name',e.target.value)}/>{child&&<select value={row.parent_id||''} onChange={e=>update(row.id,'parent_id',e.target.value||null)}>{parents.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>}<label className="category-order">Orden <input type="number" value={row.sort_order} onChange={e=>update(row.id,'sort_order',e.target.value)}/></label><label className="category-active"><input type="checkbox" checked={row.active} onChange={e=>update(row.id,'active',e.target.checked)}/> Visible</label><button className="secondary-btn compact" onClick={()=>save(row)}><Save size={15}/> Guardar</button><button className="icon-danger" onClick={()=>remove(row)}><Trash2 size={16}/></button></div>}
 
-async function processProductImage(file,degrees,zoomPercent){
+async function optimizeImageBlob(source,{degrees=0,zoomPercent=100,maxDimension=1200,quality=.82}={}){
   const normalized=((degrees%360)+360)%360
   const zoom=Math.max(.6,Math.min(1.8,Number(zoomPercent||100)/100))
-  if(!normalized && Math.abs(zoom-1)<.001)return file
-
-  const bitmap=await createImageBitmap(file)
+  const bitmap=await createImageBitmap(source)
   const swap=normalized===90||normalized===270
-  const canvas=document.createElement('canvas')
-  canvas.width=swap?bitmap.height:bitmap.width
-  canvas.height=swap?bitmap.width:bitmap.height
-  const ctx=canvas.getContext('2d')
 
-  // White background keeps zoom-out exports clean for the restaurant's studio photos.
+  const rotatedWidth=swap?bitmap.height:bitmap.width
+  const rotatedHeight=swap?bitmap.width:bitmap.height
+  const resizeScale=Math.min(1,maxDimension/Math.max(rotatedWidth,rotatedHeight))
+  const canvas=document.createElement('canvas')
+  canvas.width=Math.max(1,Math.round(rotatedWidth*resizeScale))
+  canvas.height=Math.max(1,Math.round(rotatedHeight*resizeScale))
+  const ctx=canvas.getContext('2d',{alpha:false})
+
+  // Las fotos que entrega el restaurante suelen venir con fondo blanco.
   ctx.fillStyle='#ffffff'
   ctx.fillRect(0,0,canvas.width,canvas.height)
   ctx.translate(canvas.width/2,canvas.height/2)
   ctx.rotate(normalized*Math.PI/180)
-  ctx.scale(zoom,zoom)
+  ctx.scale(zoom*resizeScale,zoom*resizeScale)
   ctx.drawImage(bitmap,-bitmap.width/2,-bitmap.height/2)
   bitmap.close?.()
 
-  const type=['image/jpeg','image/png','image/webp'].includes(file.type)?file.type:'image/jpeg'
-  const blob=await new Promise((resolve,reject)=>canvas.toBlob(
-    b=>b?resolve(b):reject(new Error('No se pudo procesar la imagen.')),
-    type,
-    type==='image/png'?undefined:.92
+  return await new Promise((resolve,reject)=>canvas.toBlob(
+    b=>b?resolve(b):reject(new Error('No se pudo optimizar la imagen.')),
+    'image/webp',
+    quality
   ))
-  const ext=type==='image/png'?'png':type==='image/webp'?'webp':'jpg'
+}
+
+async function processProductImage(file,degrees=0,zoomPercent=100){
+  const blob=await optimizeImageBlob(file,{degrees,zoomPercent,maxDimension:1200,quality:.82})
   const base=(file.name||'producto').replace(/\.[^.]+$/,'')
-  return new File([blob],`${base}-editada.${ext}`,{type,lastModified:Date.now()})
+  return new File([blob],`${base}-optimizada.webp`,{
+    type:'image/webp',
+    lastModified:Date.now()
+  })
+}
+
+function storagePathFromPublicUrl(url){
+  if(!url)return null
+  try{
+    const parsed=new URL(url)
+    const marker=`/storage/v1/object/public/${MENU_BUCKET}/`
+    const index=parsed.pathname.indexOf(marker)
+    if(index===-1)return null
+    return decodeURIComponent(parsed.pathname.slice(index+marker.length))
+  }catch{return null}
+}
+
+async function optimizeExistingProductImage(product){
+  const oldUrl=product.image_url||product.image||''
+  const oldPath=storagePathFromPublicUrl(oldUrl)
+  if(!oldPath)return {skipped:true,reason:'La imagen no está en Supabase Storage.'}
+
+  const response=await fetch(oldUrl,{cache:'no-store'})
+  if(!response.ok)throw new Error(`No se pudo descargar la imagen de ${product.name}.`)
+  const originalBlob=await response.blob()
+  const optimizedBlob=await optimizeImageBlob(originalBlob,{maxDimension:1200,quality:.82})
+  const newPath=`products/optimized/${product.id}-${Date.now()}.webp`
+
+  const {error:uploadError}=await supabase.storage
+    .from(MENU_BUCKET)
+    .upload(newPath,optimizedBlob,{upsert:false,contentType:'image/webp',cacheControl:'31536000'})
+  if(uploadError)throw uploadError
+
+  const newUrl=supabase.storage.from(MENU_BUCKET).getPublicUrl(newPath).data.publicUrl
+  const {error:updateError}=await supabase.from('products').update({image_url:newUrl}).eq('id',product.id)
+  if(updateError){
+    await supabase.storage.from(MENU_BUCKET).remove([newPath])
+    throw updateError
+  }
+
+  // Solo se elimina el archivo anterior después de que la BD apunta correctamente al nuevo.
+  if(oldPath!==newPath){
+    await supabase.storage.from(MENU_BUCKET).remove([oldPath])
+  }
+
+  return {
+    skipped:false,
+    originalBytes:Number(originalBlob.size||0),
+    optimizedBytes:Number(optimizedBlob.size||0)
+  }
 }
 
 function ProductEditor({product,catalog,onClose,onSaved}){
@@ -368,7 +487,7 @@ function ProductEditor({product,catalog,onClose,onSaved}){
     await loadTemplates();resetTemplate();await catalog.refresh()
   }
   const save=async()=>{setBusy(true);setError('');let imageUrl=form.image_url
-    if(file){let uploadFile=file;try{uploadFile=await processProductImage(file,imageRotation,imageZoom)}catch(e){setError(e.message||'No se pudo girar la imagen.');setBusy(false);return}const ext=uploadFile.name.split('.').pop();const path=`products/${crypto.randomUUID()}.${ext}`;const {error:up}=await supabase.storage.from(MENU_BUCKET).upload(path,uploadFile,{upsert:false,contentType:uploadFile.type||undefined});if(up){setError(up.message);setBusy(false);return} imageUrl=supabase.storage.from(MENU_BUCKET).getPublicUrl(path).data.publicUrl}
+    if(file){let uploadFile=file;try{uploadFile=await processProductImage(file,imageRotation,imageZoom)}catch(e){setError(e.message||'No se pudo girar la imagen.');setBusy(false);return}const ext=uploadFile.name.split('.').pop();const path=`products/${crypto.randomUUID()}.${ext}`;const {error:up}=await supabase.storage.from(MENU_BUCKET).upload(path,uploadFile,{upsert:false,contentType:uploadFile.type||undefined,cacheControl:'31536000'});if(up){setError(up.message);setBusy(false);return} imageUrl=supabase.storage.from(MENU_BUCKET).getPublicUrl(path).data.publicUrl}
     const {data:cat}=await supabase.from('categories').select('id').eq('name',form.category).is('parent_id',null).single();
     let subId=null;if(form.subcategory){const {data:sub}=await supabase.from('categories').select('id').eq('name',form.subcategory).eq('parent_id',cat?.id).maybeSingle();subId=sub?.id||null}
     const payload={name:form.name,slug:product?.slug||form.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,''),description:form.description,price:Number(form.price),category_id:cat?.id||null,subcategory_id:subId,image_url:imageUrl,featured:form.featured,spicy:form.spicy,available:form.available}
@@ -380,7 +499,7 @@ function ProductEditor({product,catalog,onClose,onSaved}){
     setBusy(false);onSaved()
   }
   const remove=async()=>{if(!product?.id||!confirm('¿Eliminar este producto?'))return;await supabase.from('products').delete().eq('id',product.id);onSaved()}
-  return <div className="modal-backdrop"><div className="product-editor product-editor-wide"><div className="modal-head"><div><small>{product?'EDITAR PRODUCTO':'NUEVO PRODUCTO'}</small><h2>{product?.name||'Agregar al menú'}</h2></div><button onClick={onClose}><X/></button></div><div className="editor-grid"><label className="admin-field"><span>Nombre</span><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label><label className="admin-field"><span>Precio base</span><input type="number" value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/></label><label className="admin-field"><span>Categoría</span><select value={form.category} onChange={e=>setForm({...form,category:e.target.value,subcategory:''})}>{categories.map(c=><option key={c}>{c}</option>)}</select></label>{(()=>{const parent=categoryObjects.find(c=>!c.parent_id&&c.name===form.category);const subs=categoryObjects.filter(c=>parent&&c.parent_id===parent.id);return subs.length?<label className="admin-field"><span>Subcategoría</span><select value={form.subcategory} onChange={e=>setForm({...form,subcategory:e.target.value})}><option value="">Sin subcategoría</option>{subs.map(s=><option key={s.id}>{s.name}</option>)}</select></label>:null})()}<label className="admin-field full-span"><span>Descripción</span><textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></label><label className="image-upload full-span"><Upload/><span><strong>Subir nueva foto</strong><small>JPG, PNG o WebP. Puedes girarla antes de guardar.</small></span><input type="file" accept="image/*" onChange={e=>{const next=e.target.files?.[0]||null;setFile(next);setImageRotation(0);setImageZoom(100)}}/></label>{(file||form.image_url)&&<div className="image-editor-preview full-span"><div className="image-preview-stage"><img className="editor-preview" src={file?URL.createObjectURL(file):form.image_url} style={file?{transform:`rotate(${imageRotation}deg) scale(${imageZoom/100})`}:undefined}/></div>{file&&<div className="image-edit-controls"><div className="image-rotate-controls"><button type="button" onClick={()=>setImageRotation(r=>(r+270)%360)}><RotateCcw size={18}/><span>Girar izquierda</span></button><b>{imageRotation}°</b><button type="button" onClick={()=>setImageRotation(r=>(r+90)%360)}><RotateCw size={18}/><span>Girar derecha</span></button></div><div className="image-zoom-controls"><button type="button" disabled={imageZoom<=60} onClick={()=>setImageZoom(z=>Math.max(60,z-10))}><ZoomOut size={18}/><span>Alejar</span></button><div><strong>{imageZoom}%</strong><input aria-label="Zoom de imagen" type="range" min="60" max="180" step="5" value={imageZoom} onChange={e=>setImageZoom(Number(e.target.value))}/></div><button type="button" disabled={imageZoom>=180} onClick={()=>setImageZoom(z=>Math.min(180,z+10))}><ZoomIn size={18}/><span>Acercar</span></button></div><button type="button" className="image-reset-btn" disabled={imageRotation===0&&imageZoom===100} onClick={()=>{setImageRotation(0);setImageZoom(100)}}>Restablecer imagen</button></div>}</div>}<div className="editor-toggles full-span"><label><input type="checkbox" checked={form.available} onChange={e=>setForm({...form,available:e.target.checked})}/> Disponible</label><label><input type="checkbox" checked={form.featured} onChange={e=>setForm({...form,featured:e.target.checked})}/> Favorito</label><label><input type="checkbox" checked={form.spicy} onChange={e=>setForm({...form,spicy:e.target.checked})}/> Spicy</label></div>
+  return <div className="modal-backdrop"><div className="product-editor product-editor-wide"><div className="modal-head"><div><small>{product?'EDITAR PRODUCTO':'NUEVO PRODUCTO'}</small><h2>{product?.name||'Agregar al menú'}</h2></div><button onClick={onClose}><X/></button></div><div className="editor-grid"><label className="admin-field"><span>Nombre</span><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label><label className="admin-field"><span>Precio base</span><input type="number" value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/></label><label className="admin-field"><span>Categoría</span><select value={form.category} onChange={e=>setForm({...form,category:e.target.value,subcategory:''})}>{categories.map(c=><option key={c}>{c}</option>)}</select></label>{(()=>{const parent=categoryObjects.find(c=>!c.parent_id&&c.name===form.category);const subs=categoryObjects.filter(c=>parent&&c.parent_id===parent.id);return subs.length?<label className="admin-field"><span>Subcategoría</span><select value={form.subcategory} onChange={e=>setForm({...form,subcategory:e.target.value})}><option value="">Sin subcategoría</option>{subs.map(s=><option key={s.id}>{s.name}</option>)}</select></label>:null})()}<label className="admin-field full-span"><span>Descripción</span><textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></label><label className="image-upload full-span"><Upload/><span><strong>Subir nueva foto</strong><small>JPG, PNG o WebP. Puedes girarla y hacer zoom; al guardar se optimiza automáticamente.</small></span><input type="file" accept="image/*" onChange={e=>{const next=e.target.files?.[0]||null;setFile(next);setImageRotation(0);setImageZoom(100)}}/></label>{(file||form.image_url)&&<div className="image-editor-preview full-span"><div className="image-preview-stage"><img className="editor-preview" src={file?URL.createObjectURL(file):form.image_url} style={file?{transform:`rotate(${imageRotation}deg) scale(${imageZoom/100})`}:undefined}/></div>{file&&<div className="image-edit-controls"><div className="image-rotate-controls"><button type="button" onClick={()=>setImageRotation(r=>(r+270)%360)}><RotateCcw size={18}/><span>Girar izquierda</span></button><b>{imageRotation}°</b><button type="button" onClick={()=>setImageRotation(r=>(r+90)%360)}><RotateCw size={18}/><span>Girar derecha</span></button></div><div className="image-zoom-controls"><button type="button" disabled={imageZoom<=60} onClick={()=>setImageZoom(z=>Math.max(60,z-10))}><ZoomOut size={18}/><span>Alejar</span></button><div><strong>{imageZoom}%</strong><input aria-label="Zoom de imagen" type="range" min="60" max="180" step="5" value={imageZoom} onChange={e=>setImageZoom(Number(e.target.value))}/></div><button type="button" disabled={imageZoom>=180} onClick={()=>setImageZoom(z=>Math.min(180,z+10))}><ZoomIn size={18}/><span>Acercar</span></button></div><button type="button" className="image-reset-btn" disabled={imageRotation===0&&imageZoom===100} onClick={()=>{setImageRotation(0);setImageZoom(100)}}>Restablecer imagen</button></div>}</div>}<div className="editor-toggles full-span"><label><input type="checkbox" checked={form.available} onChange={e=>setForm({...form,available:e.target.checked})}/> Disponible</label><label><input type="checkbox" checked={form.featured} onChange={e=>setForm({...form,featured:e.target.checked})}/> Favorito</label><label><input type="checkbox" checked={form.spicy} onChange={e=>setForm({...form,spicy:e.target.checked})}/> Spicy</label></div>
     <section className="custom-admin-section full-span"><div className="custom-admin-head"><div><small>PERSONALIZACIÓN DEL PRODUCTO</small><h3>Opciones para el cliente</h3><p>Asigna plantillas guardadas o crea una nueva para reutilizarla en otros productos.</p></div><button className="secondary-btn" onClick={()=>{if(showTemplate){resetTemplate()}else{setEditingTemplateId(null);setShowTemplate(true)}}}><Plus/> Nueva plantilla</button></div>
       {showTemplate&&<div className="template-builder"><div className="template-builder-grid"><label className="admin-field"><span>Nombre</span><input value={template.name} onChange={e=>setTemplate({...template,name:e.target.value})} placeholder="Ej. Salsas"/></label><label className="admin-field"><span>Tipo</span><select value={template.input_type} onChange={e=>setTemplate({...template,input_type:e.target.value,max_select:e.target.value==='single'?1:template.max_select})}><option value="single">Elegir una</option><option value="multiple">Marcar opciones</option><option value="quantity">Elegir cantidad</option></select></label><label className="admin-check"><input type="checkbox" checked={template.required} onChange={e=>setTemplate({...template,required:e.target.checked,min_select:e.target.checked?Math.max(1,Number(template.min_select||0)):0})}/> Obligatoria</label><label className="admin-field"><span>Mínimo</span><input type="number" min="0" value={template.min_select} onChange={e=>setTemplate({...template,min_select:e.target.value})}/></label><label className="admin-field"><span>Máximo</span><input type="number" min="1" value={template.max_select} onChange={e=>setTemplate({...template,max_select:e.target.value})}/></label></div><div className="template-options"><div className="template-options-head"><strong>Opciones</strong><small>El costo puede ser $0.</small></div>{template.options.map(o=><div className="template-option-row template-option-branch-row" key={o.id}><input value={o.name} onChange={e=>updateOption(o.id,'name',e.target.value)} placeholder="Nombre de opción"/><div className="price-input"><span>$</span><input type="number" min="0" step="1" value={o.price} onChange={e=>updateOption(o.id,'price',e.target.value)}/></div><div className="option-branch-toggles">{(catalog.branches||[]).map(b=>{const available=o.branchAvailability?.[b.id]!==false;return <button type="button" key={b.id} className={available?'available':'unavailable'} onClick={()=>setTemplate(t=>({...t,options:t.options.map(x=>x.id===o.id?{...x,branchAvailability:{...(x.branchAvailability||{}),[b.id]:!available}}:x)}))}><span>{b.short||b.name}</span><b>{available?'✓':'×'}</b></button>})}</div><button onClick={()=>removeOption(o.id)}><Trash2 size={16}/></button></div>)}<button className="text-btn" onClick={addOption}><Plus size={16}/> Agregar opción</button></div><div className="template-builder-actions"><button className="secondary-btn" onClick={resetTemplate}>Cancelar</button><button className="primary" onClick={saveTemplate}><Save size={16}/> {editingTemplateId?'Guardar cambios':'Guardar plantilla y asignar'}</button></div></div>}
       <div className="template-library">{templates.length===0?<p className="template-empty">Todavía no hay plantillas guardadas.</p>:templates.map(t=>{const active=assigned.includes(t.id);const pos=assignedOrder.filter(id=>assigned.includes(id)).indexOf(t.id);const activeCount=assignedOrder.filter(id=>assigned.includes(id)).length;const move=(dir)=>setAssignedOrder(order=>{const a=order.filter(id=>assigned.includes(id));const rest=order.filter(id=>!assigned.includes(id));const i=a.indexOf(t.id);if(i<0)return order;const j=i+dir;if(j<0||j>=a.length)return order;[a[i],a[j]]=[a[j],a[i]];return [...a,...rest]});return <div className={`template-card template-card-order ${active?'active':''}`} key={t.id}><label><input type="checkbox" checked={active} onChange={e=>{setAssigned(x=>e.target.checked?[...x,t.id]:x.filter(id=>id!==t.id));if(e.target.checked)setAssignedOrder(x=>x.includes(t.id)?x:[...x,t.id])}}/><div><strong>{t.name}</strong><small>{t.input_type==='single'?'Elegir una':t.input_type==='multiple'?'Marcar opciones':'Por cantidad'} · {t.required?'Obligatoria':'Opcional'}</small><span>{(t.options||[]).map(o=>`${o.name}${Number(o.price)>0?` (+$${o.price})`:''}`).join(' · ')}</span></div></label><button type="button" className="template-edit-btn" onClick={()=>editTemplate(t)}><Pencil size={15}/> Editar</button>{active&&<div className="template-order-controls"><b>{pos+1}</b><button type="button" disabled={pos<=0} onClick={()=>move(-1)} aria-label="Subir personalización">↑</button><button type="button" disabled={pos<0||pos>=activeCount-1} onClick={()=>move(1)} aria-label="Bajar personalización">↓</button></div>}</div>})}</div>
