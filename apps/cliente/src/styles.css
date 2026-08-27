@@ -3430,3 +3430,46 @@ main{
 .auth-divider span{
   white-space:nowrap;
 }
+
+
+/* ===== Google OAuth complete profile ===== */
+.google-complete-card{
+  max-width:460px!important;
+}
+.google-complete-head{
+  display:grid;
+  gap:6px;
+  margin-bottom:4px;
+}
+.google-complete-head h2{
+  margin:0;
+  color:#fff;
+  font-size:25px;
+  letter-spacing:-.03em;
+}
+.google-complete-head p{
+  margin:0;
+  color:#8c8c88;
+  font-size:10px;
+  line-height:1.55;
+}
+.google-phone-prefix{
+  min-width:96px;
+  height:48px;
+  padding:0 11px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid #383838;
+  border-radius:12px;
+  background:#202020;
+  color:#eee;
+  font-size:12px;
+  font-weight:800;
+}
+.google-complete-loading{
+  margin:auto;
+  color:#aaa;
+  font-size:12px;
+  font-weight:800;
+}

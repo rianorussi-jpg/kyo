@@ -262,6 +262,7 @@ function App(){
       <Route path="/support" element={<SupportPage {...shared}/>}/>
       <Route path="/login" element={<LoginPage auth={auth}/>}/>
       <Route path="/reset-password" element={<ResetPasswordPage auth={auth}/>}/>
+      <Route path="/complete-profile" element={<CompleteGoogleProfilePage auth={auth}/>}/>
       <Route path="/legal" element={<LegalPage/>}/>
       <Route path="/privacy" element={<PrivacyPage/>}/>
       <Route path="/terms" element={<TermsPage/>}/>
@@ -435,13 +436,8 @@ function LoginPage({auth}){
     setError('')
     if(!supabase){setError('Falta configurar Supabase.');return}
 
-    if(mode==='register'&&!acceptedTerms){
-      setError('Debes aceptar los Términos y Condiciones y la Política de Privacidad.')
-      return
-    }
-
     setBusy(true)
-    const redirectTo=`${window.location.origin}/`
+    const redirectTo=`${window.location.origin}/complete-profile`
     const {error:e}=await supabase.auth.signInWithOAuth({
       provider:'google',
       options:{
@@ -531,6 +527,162 @@ function LoginPage({auth}){
       {mode==='register'&&<label className="legal-consent"><input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)}/><span>Acepto los <button type="button" onClick={()=>window.open('/terms','_blank')}>Términos y Condiciones</button> y la <button type="button" onClick={()=>window.open('/privacy','_blank')}>Política de Privacidad</button>. También aplica si me registro con Google.</span></label>}
       {error&&<div className="form-message">{error}</div>}
       <button disabled={busy} className="primary full">{busy?'Procesando...':mode==='login'?'Entrar a mi cuenta':'Crear mi cuenta'}</button>
+    </form>
+  </main>
+}
+
+
+function CompleteGoogleProfilePage({auth}){
+  const nav=useNavigate()
+  const [name,setName]=useState('')
+  const [phone,setPhone]=useState('')
+  const [acceptedTerms,setAcceptedTerms]=useState(false)
+  const [busy,setBusy]=useState(false)
+  const [error,setError]=useState('')
+  const [checking,setChecking]=useState(true)
+
+  useEffect(()=>{
+    if(auth.loading)return
+    if(!auth.user){
+      nav('/login',{replace:true})
+      return
+    }
+
+    const profileName=auth.profile?.full_name||auth.user.user_metadata?.full_name||auth.user.user_metadata?.name||''
+    const profilePhone=(auth.profile?.phone||auth.user.user_metadata?.phone||'')
+      .replace(/^\+52/,'')
+      .replace(/\D/g,'')
+      .slice(-10)
+
+    setName(profileName)
+    setPhone(profilePhone)
+
+    const alreadyAccepted=!!auth.user.user_metadata?.terms_accepted_at
+    setAcceptedTerms(alreadyAccepted)
+
+    // Existing Google users who already completed everything should not see this screen.
+    if(profilePhone.length===10 && alreadyAccepted){
+      nav('/',{replace:true})
+      return
+    }
+
+    setChecking(false)
+  },[
+    auth.loading,
+    auth.user?.id,
+    auth.profile?.phone,
+    auth.profile?.full_name,
+    auth.user?.user_metadata?.terms_accepted_at
+  ])
+
+  const save=async e=>{
+    e.preventDefault()
+    setError('')
+
+    const cleanName=name.trim()
+    const digits=phone.replace(/\D/g,'')
+
+    if(!cleanName)return setError('Escribe tu nombre.')
+    if(digits.length!==10)return setError('Tu número debe tener exactamente 10 dígitos.')
+    if(!acceptedTerms)return setError('Debes aceptar los Términos y Condiciones y la Política de Privacidad.')
+
+    setBusy(true)
+    const fullPhone=`+52${digits}`
+    const acceptedAt=auth.user.user_metadata?.terms_accepted_at||new Date().toISOString()
+
+    const {error:profileError}=await supabase
+      .from('profiles')
+      .update({
+        full_name:cleanName,
+        phone:fullPhone,
+        updated_at:new Date().toISOString()
+      })
+      .eq('id',auth.user.id)
+
+    if(profileError){
+      setBusy(false)
+      setError(friendlyError(profileError,'profile'))
+      return
+    }
+
+    const {error:userError}=await supabase.auth.updateUser({
+      data:{
+        ...auth.user.user_metadata,
+        full_name:cleanName,
+        phone:fullPhone,
+        phone_country_code:'+52',
+        terms_accepted_at:acceptedAt,
+        terms_version:'2026-08-26'
+      }
+    })
+
+    if(userError){
+      setBusy(false)
+      setError(friendlyError(userError,'profile'))
+      return
+    }
+
+    await auth.refreshProfile()
+    setBusy(false)
+    nav('/',{replace:true})
+  }
+
+  if(checking||auth.loading){
+    return <main className="auth-page">
+      <div className="google-complete-loading">Preparando tu cuenta KYO…</div>
+    </main>
+  }
+
+  return <main className="auth-page">
+    <div className="auth-brand">
+      <Brand/>
+      <p>Solo falta un dato para completar tu cuenta.</p>
+    </div>
+
+    <form className="auth-card google-complete-card" onSubmit={save}>
+      <div className="google-complete-head">
+        <span className="eyebrow dark">BIENVENIDO A KYO</span>
+        <h2>Completa tu cuenta</h2>
+        <p>Google ya nos compartió tu nombre y correo. Necesitamos tu teléfono para tus pedidos y entregas.</p>
+      </div>
+
+      <label>
+        Nombre
+        <input required value={name} onChange={e=>setName(e.target.value)} placeholder="Tu nombre"/>
+      </label>
+
+      <label>
+        Número de teléfono
+        <div className="phone-register-field">
+          <span className="google-phone-prefix">🇲🇽 +52</span>
+          <input
+            required
+            type="tel"
+            inputMode="numeric"
+            autoComplete="tel-national"
+            pattern="[0-9]{10}"
+            minLength="10"
+            maxLength="10"
+            value={phone}
+            onChange={e=>setPhone(e.target.value.replace(/\D/g,'').slice(0,10))}
+            placeholder="4421234567"
+          />
+        </div>
+        <small className={`phone-digit-count ${phone.length===10?'complete':''}`}>{phone.length}/10 dígitos</small>
+      </label>
+
+      <label className="legal-consent">
+        <input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)}/>
+        <span>
+          Acepto los <button type="button" onClick={()=>window.open('/terms','_blank')}>Términos y Condiciones</button> y la <button type="button" onClick={()=>window.open('/privacy','_blank')}>Política de Privacidad</button>.
+        </span>
+      </label>
+
+      {error&&<div className="form-message">{error}</div>}
+
+      <button className="primary full" disabled={busy}>
+        {busy?'Guardando…':'Completar mi cuenta'}
+      </button>
     </form>
   </main>
 }
