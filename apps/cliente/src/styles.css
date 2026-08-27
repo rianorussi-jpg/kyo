@@ -3555,3 +3555,36 @@ main{
     font-size:9px;
   }
 }
+
+
+/* ===== Footer KYO integrado: branding + legal ===== */
+.home-legal-footer-rich{
+  display:grid;
+  justify-items:center;
+  gap:13px;
+}
+.home-footer-about{
+  max-width:760px;
+  text-align:center;
+}
+.home-footer-about strong{
+  display:block;
+  margin-bottom:5px;
+  color:#b5b5b1;
+  font-size:11px;
+  font-weight:900;
+}
+.home-footer-about p{
+  margin:0;
+  color:#70706d;
+  font-size:9px;
+  line-height:1.6;
+  font-weight:600;
+}
+.home-footer-links{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-wrap:wrap;
+  gap:7px;
+}
