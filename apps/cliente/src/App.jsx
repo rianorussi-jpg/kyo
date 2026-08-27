@@ -375,7 +375,22 @@ function productDisplayPrice(p){
   return extra>0?`Desde ${money(extra)}`:money(base)
 }
 
-function ProductCard({p,add,branchId,storeOpen=true,storeReady=true}){const branchUnavailable=branchId&&p.branchAvailability?.[branchId]===false;const storeClosed=storeReady&&!storeOpen;const scheduleLoading=!storeReady;return <article className={`product-card ${branchUnavailable||storeClosed?'branch-unavailable':''}`}><div className="product-img"><img src={p.image||p.image_url} alt={p.name}/>{p.spicy&&<span className="spicy"><Flame size={13}/> Spicy</span>}{(branchUnavailable||storeClosed)&&<span className="branch-soldout">{storeClosed?'Cerrado ahora':'No disponible aquí'}</span>}</div><div className="product-body"><small>{p.category}</small><h3>{p.name}</h3><p>{p.desc||p.description}</p><div><strong>{productDisplayPrice(p)}</strong><button className="add-btn" disabled={branchUnavailable||storeClosed||scheduleLoading} onClick={()=>!branchUnavailable&&!storeClosed&&!scheduleLoading&&add(p)} aria-label={`Agregar ${p.name}`}><Plus/></button></div></div></article>}
+function LazyProductImage({src,alt}){
+  const [loaded,setLoaded]=useState(false)
+  return <div className={`lazy-product-image ${loaded?'loaded':''}`}>
+    {!loaded&&<div className="product-image-skeleton" aria-hidden="true"/>}
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      onLoad={()=>setLoaded(true)}
+      onError={()=>setLoaded(true)}
+    />
+  </div>
+}
+
+function ProductCard({p,add,branchId,storeOpen=true,storeReady=true}){const branchUnavailable=branchId&&p.branchAvailability?.[branchId]===false;const storeClosed=storeReady&&!storeOpen;const scheduleLoading=!storeReady;return <article className={`product-card ${branchUnavailable||storeClosed?'branch-unavailable':''}`}><div className="product-img"><LazyProductImage src={p.image||p.image_url} alt={p.name}/>{p.spicy&&<span className="spicy"><Flame size={13}/> Spicy</span>}{(branchUnavailable||storeClosed)&&<span className="branch-soldout">{storeClosed?'Cerrado ahora':'No disponible aquí'}</span>}</div><div className="product-body"><small>{p.category}</small><h3>{p.name}</h3><p>{p.desc||p.description}</p><div><strong>{productDisplayPrice(p)}</strong><button className="add-btn" disabled={branchUnavailable||storeClosed||scheduleLoading} onClick={()=>!branchUnavailable&&!storeClosed&&!scheduleLoading&&add(p)} aria-label={`Agregar ${p.name}`}><Plus/></button></div></div></article>}
 
 function MenuPage(props){
   const {auth,catalog,addressBook,destination,setDestination,selectedAddress,add,cartCount,branch,storeStatus}=props

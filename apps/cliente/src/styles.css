@@ -3588,3 +3588,47 @@ main{
   flex-wrap:wrap;
   gap:7px;
 }
+
+
+/* ===== Remove stale Google crawler block from previous deploys ===== */
+#kyo-static-purpose{
+  display:none!important;
+  visibility:hidden!important;
+  height:0!important;
+  overflow:hidden!important;
+  padding:0!important;
+  margin:0!important;
+}
+
+
+/* ===== Lazy loading imágenes de productos ===== */
+.lazy-product-image{
+  position:absolute;
+  inset:0;
+  overflow:hidden;
+  background:#e9e9e7;
+}
+.lazy-product-image img{
+  width:100%!important;
+  height:100%!important;
+  object-fit:cover!important;
+  opacity:0;
+  transition:opacity .22s ease;
+}
+.lazy-product-image.loaded img{
+  opacity:1;
+}
+.product-image-skeleton{
+  position:absolute;
+  inset:0;
+  background:linear-gradient(100deg,#dededb 30%,#f0f0ed 45%,#dededb 60%);
+  background-size:220% 100%;
+  animation:kyoImageSkeleton 1.25s ease-in-out infinite;
+}
+@keyframes kyoImageSkeleton{
+  0%{background-position:100% 0}
+  100%{background-position:-100% 0}
+}
+.product-img{
+  position:relative!important;
+}

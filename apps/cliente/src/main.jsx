@@ -1,3 +1,6 @@
+const staleStaticPurpose=document.getElementById('kyo-static-purpose')
+if(staleStaticPurpose) staleStaticPurpose.remove()
+
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
