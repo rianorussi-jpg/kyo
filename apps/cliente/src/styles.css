@@ -3473,3 +3473,47 @@ main{
   font-size:12px;
   font-weight:800;
 }
+
+
+/* ===== Footer legal visible para Google OAuth branding ===== */
+.home-legal-footer{
+  margin:22px auto 92px;
+  padding:18px 20px;
+  max-width:1180px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-wrap:wrap;
+  gap:8px;
+  color:#777;
+  font-size:9px;
+  font-weight:750;
+  letter-spacing:.01em;
+  text-align:center;
+}
+.home-legal-footer button{
+  appearance:none;
+  border:0;
+  padding:2px 0;
+  background:transparent;
+  color:#8a8a87;
+  font:inherit;
+  cursor:pointer;
+  text-decoration:underline;
+  text-underline-offset:3px;
+}
+.home-legal-footer button:hover{
+  color:#f28a22;
+}
+.home-legal-dot{
+  color:#494949;
+}
+@media(max-width:600px){
+  .home-legal-footer{
+    margin-top:16px;
+    margin-bottom:88px;
+    padding:16px 18px;
+    gap:6px;
+    font-size:8px;
+  }
+}
