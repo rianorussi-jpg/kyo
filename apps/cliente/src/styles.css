@@ -3517,3 +3517,41 @@ main{
     font-size:8px;
   }
 }
+
+
+/* ===== Google Branding: propósito explícito de la app ===== */
+.home-purpose{
+  width:min(900px,calc(100% - 32px));
+  margin:34px auto 6px;
+  padding:24px 26px;
+  border:1px solid #2f2f2f;
+  border-radius:18px;
+  background:#151515;
+  text-align:center;
+}
+.home-purpose h2{
+  margin:6px 0 9px;
+  color:#f3f3f1;
+  font-size:22px;
+  line-height:1.15;
+  letter-spacing:-.025em;
+}
+.home-purpose p{
+  max-width:720px;
+  margin:0 auto;
+  color:#999995;
+  font-size:10px;
+  line-height:1.65;
+}
+@media(max-width:600px){
+  .home-purpose{
+    margin-top:24px;
+    padding:20px 18px;
+  }
+  .home-purpose h2{
+    font-size:19px;
+  }
+  .home-purpose p{
+    font-size:9px;
+  }
+}
