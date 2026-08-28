@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { RefreshCw, ShieldCheck, LayoutDashboard, Utensils, LogOut, Plus, Package, MapPin, Clock3, Pencil, X, Upload, Trash2, Save, ClipboardList, DollarSign, RotateCcw, RotateCw, ZoomIn, ZoomOut, Settings, Gift } from 'lucide-react'
+import { RefreshCw, ShieldCheck, LayoutDashboard, Utensils, LogOut, Plus, Package, MapPin, Clock3, Pencil, X, Upload, Trash2, Save, ClipboardList, DollarSign, RotateCcw, RotateCw, ZoomIn, ZoomOut, Settings, Gift, BarChart3, TrendingUp, Users, ShoppingBag, Truck, Store, Download, Percent, ReceiptText, CalendarDays } from 'lucide-react'
 import { supabase, MENU_BUCKET } from './supabase'
 
 const money = n => `$${Number(n || 0).toLocaleString('es-MX', {maximumFractionDigits: 2})}`
@@ -48,10 +48,17 @@ export function AdminPanel({auth,catalog}){
 
   const loadOrders=async()=>{
     if(!supabase)return
-    let query=supabase.from('orders').select('*, order_items(*), profiles(full_name,phone)').order('created_at',{ascending:false}).limit(1000)
-    if(panelBranch)query=query.eq('branch_id',panelBranch)
-    const {data}=await query
-    setOrders(data||[])
+    const all=[]
+    const pageSize=1000
+    for(let from=0;;from+=pageSize){
+      let query=supabase.from('orders').select('*, order_items(*), profiles(full_name,phone)').order('created_at',{ascending:false}).range(from,from+pageSize-1)
+      if(panelBranch)query=query.eq('branch_id',panelBranch)
+      const {data,error}=await query
+      if(error){console.error('No se pudieron cargar pedidos del panel',error);break}
+      all.push(...(data||[]))
+      if(!data||data.length<pageSize)break
+    }
+    setOrders(all)
   }
 
   useEffect(()=>{
@@ -70,7 +77,7 @@ export function AdminPanel({auth,catalog}){
     if(status==='delivered')auth.refreshProfile()
   }
 
-  const title=tab==='orders'?'Pedidos':tab==='records'?'Registros':tab==='settings'?'Configuración':'Menú'
+  const title=tab==='orders'?'Pedidos':tab==='records'?'Registros':tab==='stats'?'Estadísticas':tab==='settings'?'Configuración':'Menú'
 
   return <main className="admin-shell">
     <aside className="admin-side">
@@ -79,6 +86,7 @@ export function AdminPanel({auth,catalog}){
       <nav>
         <button className={tab==='orders'?'active':''} onClick={()=>setTab('orders')}><LayoutDashboard/> Pedidos</button>
         <button className={tab==='records'?'active':''} onClick={()=>setTab('records')}><ClipboardList/> Registros</button>
+        <button className={tab==='stats'?'active':''} onClick={()=>setTab('stats')}><BarChart3/> Estadísticas</button>
         <button className={tab==='menu'?'active':''} onClick={()=>setTab('menu')}><Utensils/> Menú</button>
         {!isBranchManager&&<button className={tab==='settings'?'active':''} onClick={()=>setTab('settings')}><Settings/> Configuración</button>}
       </nav>
@@ -94,6 +102,8 @@ export function AdminPanel({auth,catalog}){
         ?<AdminOrders orders={orders} updateStatus={updateStatus} fixedBranch={panelBranch} canUpdateStatus={!isBranchManager}/>
         :tab==='records'
           ?<AdminRecords orders={orders} fixedBranch={panelBranch}/>
+          :tab==='stats'
+            ?<AdminStats orders={orders} fixedBranch={panelBranch}/>
           :tab==='settings'&&!isBranchManager
             ?<AdminSettings catalog={catalog}/>
             :<AdminMenuManager catalog={catalog} onEdit={isBranchManager?null:setEditing} fixedBranch={panelBranch}/>}
@@ -293,8 +303,124 @@ function AdminRecords({orders,fixedBranch=null}){
   const cutoff=period==='all'?null:new Date(Date.now()-Number(period)*86400000)
   const filtered=orders.filter(o=>o.status!=='cancelled').filter(o=>fixedBranch?o.branch_id===fixedBranch:(branch==='all'||o.branch_id===branch)).filter(o=>!cutoff||new Date(o.created_at)>=cutoff)
   const total=filtered.reduce((a,o)=>a+Number(o.total||0),0); const delivered=filtered.filter(o=>o.status==='delivered').length
+  const pickup=filtered.filter(o=>o.fulfillment_type==='pickup').length; const delivery=filtered.filter(o=>o.fulfillment_type==='delivery').length
   const branchName=fixedBranch==='zakia'?'Zákia':fixedBranch==='milenio'?'Milenio':''
-  return <div className="admin-records"><div className="records-toolbar"><div><small>SUCURSAL</small>{fixedBranch?<div className={`fixed-branch-label ${fixedBranch}`}><MapPin/> KYO {branchName}</div>:<BranchFilter value={branch} onChange={setBranch}/>}</div><div><small>PERIODO</small><div className="admin-filter-row">{[['1','1 día'],['7','7 días'],['30','30 días'],['all','Toda la vida']].map(([v,l])=><button key={v} className={period===v?'active':''} onClick={()=>setPeriod(v)}>{l}</button>)}</div></div></div><div className="record-summary"><article><DollarSign/><span><small>VENTAS</small><strong>{money(total)}</strong></span></article><article><Package/><span><small>PEDIDOS</small><strong>{filtered.length}</strong></span></article><article><ClipboardList/><span><small>ENTREGADOS</small><strong>{delivered}</strong></span></article></div><div className="records-table"><div className="records-head"><span>Pedido</span><span>Fecha</span><span>Sucursal</span><span>Cliente</span><span>Estado</span><span>Total</span></div>{filtered.map(o=><div className="records-row" key={o.id}><strong>#{String(o.order_number).padStart(4,'0')}</strong><span>{new Date(o.created_at).toLocaleString('es-MX')}</span><span><b className={`branch-pill small ${o.branch_id}`}>{o.branch_id==='zakia'?'Zákia':'Milenio'}</b></span><span>{o.profiles?.full_name||'Cliente KYO'}</span><span>{statusLabels[o.status]}</span><strong>{money(o.total)}</strong></div>)}{!filtered.length&&<div className="records-empty">No hay registros para este periodo.</div>}</div></div>
+  return <div className="admin-records"><div className="records-toolbar"><div><small>SUCURSAL</small>{fixedBranch?<div className={`fixed-branch-label ${fixedBranch}`}><MapPin/> KYO {branchName}</div>:<BranchFilter value={branch} onChange={setBranch}/>}</div><div><small>PERIODO</small><div className="admin-filter-row">{[['1','1 día'],['7','7 días'],['30','30 días'],['all','Toda la vida']].map(([v,l])=><button key={v} className={period===v?'active':''} onClick={()=>setPeriod(v)}>{l}</button>)}</div></div></div><div className="record-summary extended"><article><DollarSign/><span><small>VENTAS</small><strong>{money(total)}</strong></span></article><article><Package/><span><small>PEDIDOS</small><strong>{filtered.length}</strong></span></article><article><Truck/><span><small>DELIVERY</small><strong>{delivery}</strong></span></article><article><Store/><span><small>PICKUP</small><strong>{pickup}</strong></span></article><article><ClipboardList/><span><small>ENTREGADOS</small><strong>{delivered}</strong></span></article></div><div className="records-table"><div className="records-head"><span>Pedido</span><span>Fecha</span><span>Sucursal</span><span>Cliente</span><span>Estado</span><span>Total</span></div>{filtered.map(o=><div className="records-row" key={o.id}><strong>#{String(o.order_number).padStart(4,'0')}</strong><span>{new Date(o.created_at).toLocaleString('es-MX')}</span><span><b className={`branch-pill small ${o.branch_id}`}>{o.branch_id==='zakia'?'Zákia':'Milenio'}</b></span><span>{o.profiles?.full_name||'Cliente KYO'}</span><span>{statusLabels[o.status]}</span><strong>{money(o.total)}</strong></div>)}{!filtered.length&&<div className="records-empty">No hay registros para este periodo.</div>}</div></div>
+}
+
+const csvCell=value=>`"${String(value??'').replace(/"/g,'""')}"`
+const downloadCsv=(filename,rows)=>{
+  const csv='\ufeff'+rows.map(row=>row.map(csvCell).join(',')).join('\n')
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'})
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url)
+}
+const periodLabel=p=>p==='1'?'Hoy / últimas 24 h':p==='7'?'Últimos 7 días':p==='30'?'Últimos 30 días':p==='90'?'Últimos 90 días':'Toda la vida'
+const branchLabelFor=b=>b==='zakia'?'Zákia':b==='milenio'?'Milenio':'Todas las sucursales'
+
+function AdminStats({orders,fixedBranch=null}){
+  const [branch,setBranch]=useState(fixedBranch||'all')
+  const [period,setPeriod]=useState('30')
+  useEffect(()=>{if(fixedBranch)setBranch(fixedBranch)},[fixedBranch])
+  const cutoff=period==='all'?null:new Date(Date.now()-Number(period)*86400000)
+  const scoped=orders.filter(o=>fixedBranch?o.branch_id===fixedBranch:(branch==='all'||o.branch_id===branch)).filter(o=>!cutoff||new Date(o.created_at)>=cutoff)
+  const valid=scoped.filter(o=>o.status!=='cancelled')
+  const delivered=valid.filter(o=>o.status==='delivered')
+  const sales=valid.reduce((sum,o)=>sum+Number(o.total||0),0)
+  const avgTicket=valid.length?sales/valid.length:0
+  const pickup=valid.filter(o=>o.fulfillment_type==='pickup').length
+  const delivery=valid.filter(o=>o.fulfillment_type==='delivery').length
+  const cancelled=scoped.filter(o=>o.status==='cancelled').length
+  const cancellationRate=scoped.length?cancelled/scoped.length*100:0
+  const uniqueCustomers=new Set(valid.map(o=>o.user_id).filter(Boolean)).size
+  const totalItems=valid.reduce((sum,o)=>sum+(o.order_items||[]).reduce((x,i)=>x+Number(i.quantity||0),0),0)
+  const avgItems=valid.length?totalItems/valid.length:0
+
+  const productMap={}
+  valid.forEach(o=>(o.order_items||[]).forEach(i=>{
+    const name=i.product_name||'Producto'
+    const row=productMap[name]||(productMap[name]={name,quantity:0,revenue:0,orders:new Set()})
+    row.quantity+=Number(i.quantity||0)
+    row.revenue+=Number(i.total||i.line_total||i.price||i.unit_price||0)*Number(i.total||i.line_total?1:i.quantity||1)
+    row.orders.add(o.id)
+  }))
+  const topProducts=Object.values(productMap).sort((a,b)=>b.quantity-a.quantity||b.revenue-a.revenue).slice(0,5)
+
+  const customerMap={}
+  valid.forEach(o=>{
+    const key=o.user_id||`guest:${o.profiles?.phone||o.profiles?.full_name||o.id}`
+    const row=customerMap[key]||(customerMap[key]={name:o.profiles?.full_name||'Cliente KYO',phone:o.profiles?.phone||'',spend:0,orders:0})
+    row.spend+=Number(o.total||0);row.orders++
+  })
+  const topCustomers=Object.values(customerMap).sort((a,b)=>b.spend-a.spend).slice(0,5)
+
+  const dayNames=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado']
+  const dayMap={}
+  valid.forEach(o=>{const d=dayNames[new Date(o.created_at).getDay()];const row=dayMap[d]||(dayMap[d]={orders:0,sales:0});row.orders++;row.sales+=Number(o.total||0)})
+  const peakDay=Object.entries(dayMap).sort((a,b)=>b[1].orders-a[1].orders)[0]
+
+  const hourMap={}
+  valid.forEach(o=>{const h=new Date(o.created_at).getHours();hourMap[h]=(hourMap[h]||0)+1})
+  const peakHour=Object.entries(hourMap).sort((a,b)=>b[1]-a[1])[0]
+
+  const branchRows=['zakia','milenio'].map(id=>{const arr=valid.filter(o=>o.branch_id===id);return {id,orders:arr.length,sales:arr.reduce((a,o)=>a+Number(o.total||0),0)}}).filter(x=>x.orders>0)
+  const maxProduct=Math.max(1,...topProducts.map(p=>p.quantity))
+  const maxCustomer=Math.max(1,...topCustomers.map(c=>c.spend))
+  const effectiveBranch=fixedBranch||branch
+  const fileScope=effectiveBranch==='all'?'todas':effectiveBranch
+  const dateTag=new Date().toISOString().slice(0,10)
+
+  const exportKpi=()=>{
+    const rows=[
+      ['KYO Sushi · Reporte KPI'],
+      ['Sucursal',branchLabelFor(effectiveBranch)],['Periodo',periodLabel(period)],['Generado',new Date().toLocaleString('es-MX')],[],
+      ['KPI','Valor'],['Ventas',sales.toFixed(2)],['Pedidos válidos',valid.length],['Ticket promedio',avgTicket.toFixed(2)],['Clientes únicos',uniqueCustomers],['Delivery',delivery],['Pickup',pickup],['Cancelados',cancelled],['Tasa de cancelación',`${cancellationRate.toFixed(1)}%`],['Productos por pedido',avgItems.toFixed(2)],['Día con más pedidos',peakDay?`${peakDay[0]} (${peakDay[1].orders})`:'Sin datos'],['Hora pico',peakHour?`${String(peakHour[0]).padStart(2,'0')}:00 (${peakHour[1]} pedidos)`:'Sin datos'],[],
+      ['TOP 5 PRODUCTOS','Unidades','Ventas estimadas'],...topProducts.map(p=>[p.name,p.quantity,p.revenue.toFixed(2)]),[],
+      ['TOP 5 CLIENTES','Teléfono','Pedidos','Gasto'],...topCustomers.map(c=>[c.name,c.phone,c.orders,c.spend.toFixed(2)]),[],
+      ['SUCURSAL','Pedidos','Ventas'],...branchRows.map(b=>[branchLabelFor(b.id),b.orders,b.sales.toFixed(2)])
+    ]
+    downloadCsv(`kyo-kpi-${fileScope}-${dateTag}.csv`,rows)
+  }
+
+  const exportRecords=()=>{
+    const rows=[['Pedido','Fecha','Sucursal','Tipo','Estado','Cliente','Teléfono','Subtotal','Total','Productos','Dirección']]
+    scoped.forEach(o=>rows.push([
+      `#${String(o.order_number).padStart(4,'0')}`,
+      new Date(o.created_at).toLocaleString('es-MX'),branchLabelFor(o.branch_id),o.fulfillment_type==='delivery'?'Delivery':'Pickup',statusLabels[o.status]||o.status,
+      o.profiles?.full_name||'Cliente KYO',o.profiles?.phone||'',Number(o.subtotal||0).toFixed(2),Number(o.total||0).toFixed(2),
+      (o.order_items||[]).map(i=>`${i.quantity}x ${i.product_name}`).join(' | '),o.delivery_address||''
+    ]))
+    downloadCsv(`kyo-registro-completo-${fileScope}-${dateTag}.csv`,rows)
+  }
+
+  return <div className="admin-stats-page">
+    <div className="stats-toolbar">
+      <div><small>SUCURSAL</small>{fixedBranch?<div className={`fixed-branch-label ${fixedBranch}`}><MapPin/> KYO {branchLabelFor(fixedBranch)}</div>:<BranchFilter value={branch} onChange={setBranch}/>}</div>
+      <div><small>PERIODO</small><div className="admin-filter-row">{[['1','Hoy'],['7','7 días'],['30','30 días'],['90','90 días'],['all','Todo']].map(([v,l])=><button key={v} className={period===v?'active':''} onClick={()=>setPeriod(v)}>{l}</button>)}</div></div>
+      <div className="stats-downloads"><button onClick={exportKpi}><Download/> Descargar KPI</button><button onClick={exportRecords}><ReceiptText/> Registro completo</button></div>
+    </div>
+
+    <div className="stats-kpi-grid">
+      <article><DollarSign/><span><small>VENTAS</small><strong>{money(sales)}</strong><em>{valid.length} pedidos válidos</em></span></article>
+      <article><TrendingUp/><span><small>TICKET PROMEDIO</small><strong>{money(avgTicket)}</strong><em>por pedido</em></span></article>
+      <article><Users/><span><small>CLIENTES ÚNICOS</small><strong>{uniqueCustomers}</strong><em>en el periodo</em></span></article>
+      <article><ShoppingBag/><span><small>PRODUCTOS / PEDIDO</small><strong>{avgItems.toFixed(1)}</strong><em>{totalItems} unidades vendidas</em></span></article>
+      <article><Percent/><span><small>CANCELACIÓN</small><strong>{cancellationRate.toFixed(1)}%</strong><em>{cancelled} cancelados</em></span></article>
+      <article><Clock3/><span><small>HORA PICO</small><strong>{peakHour?`${String(peakHour[0]).padStart(2,'0')}:00`:'—'}</strong><em>{peakHour?`${peakHour[1]} pedidos`:'Sin datos'}</em></span></article>
+    </div>
+
+    <div className="stats-two-col">
+      <section className="stats-card"><div className="stats-card-head"><div><small>PRODUCTOS</small><h2>Top 5 más vendidos</h2></div><ShoppingBag/></div>{topProducts.length?<div className="stats-ranking">{topProducts.map((p,i)=><div key={p.name}><b>{i+1}</b><span><strong>{p.name}</strong><small>{p.quantity} unidades · {p.orders.size} pedidos</small><i><em style={{width:`${Math.max(5,p.quantity/maxProduct*100)}%`}}/></i></span><strong>{p.quantity}</strong></div>)}</div>:<div className="stats-no-data">Todavía no hay ventas en este periodo.</div>}</section>
+      <section className="stats-card"><div className="stats-card-head"><div><small>CLIENTES</small><h2>Top 5 más gastadores</h2></div><Users/></div>{topCustomers.length?<div className="stats-ranking customers">{topCustomers.map((c,i)=><div key={`${c.name}-${i}`}><b>{i+1}</b><span><strong>{c.name}</strong><small>{c.orders} pedidos{c.phone?` · ${c.phone}`:''}</small><i><em style={{width:`${Math.max(5,c.spend/maxCustomer*100)}%`}}/></i></span><strong>{money(c.spend)}</strong></div>)}</div>:<div className="stats-no-data">Todavía no hay clientes en este periodo.</div>}</section>
+    </div>
+
+    <div className="stats-three-col">
+      <section className="stats-card compact"><div className="stats-card-head"><div><small>CANAL</small><h2>Delivery vs Pickup</h2></div><Truck/></div><div className="channel-split"><div><Truck/><span><small>DELIVERY</small><strong>{delivery}</strong><em>{valid.length?Math.round(delivery/valid.length*100):0}%</em></span></div><div><Store/><span><small>PICKUP</small><strong>{pickup}</strong><em>{valid.length?Math.round(pickup/valid.length*100):0}%</em></span></div></div></section>
+      <section className="stats-card compact"><div className="stats-card-head"><div><small>OPERACIÓN</small><h2>Día más fuerte</h2></div><CalendarDays/></div><div className="big-stat"><strong>{peakDay?.[0]||'—'}</strong><small>{peakDay?`${peakDay[1].orders} pedidos · ${money(peakDay[1].sales)}`:'Sin datos'}</small></div></section>
+      <section className="stats-card compact"><div className="stats-card-head"><div><small>ESTATUS</small><h2>Resultado de pedidos</h2></div><ClipboardList/></div><div className="mini-status-list"><span><b>Entregados</b><strong>{delivered.length}</strong></span><span><b>En proceso</b><strong>{valid.length-delivered.length}</strong></span><span><b>Cancelados</b><strong>{cancelled}</strong></span></div></section>
+    </div>
+
+    {!fixedBranch&&branch==='all'&&<section className="stats-card"><div className="stats-card-head"><div><small>SUCURSALES</small><h2>Comparativo</h2></div><MapPin/></div><div className="branch-comparison">{branchRows.map(b=><div key={b.id}><span><strong>KYO {branchLabelFor(b.id)}</strong><small>{b.orders} pedidos</small></span><strong>{money(b.sales)}</strong></div>)}</div></section>}
+  </div>
 }
 
 function AdminMenuManager({catalog,onEdit,fixedBranch=null}){
