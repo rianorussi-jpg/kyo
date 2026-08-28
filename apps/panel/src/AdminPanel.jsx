@@ -288,7 +288,7 @@ function AdminOrders({orders,updateStatus,fixedBranch=null,canUpdateStatus=true}
     <div className="admin-section-toolbar"><div><small>SUCURSAL</small>{fixedBranch?<div className={`fixed-branch-label ${fixedBranch}`}><MapPin/> KYO {branchName}</div>:<BranchFilter value={branch} onChange={setBranch}/>}</div></div>
     <div className="admin-orders">
       {filtered.length===0?<div className="admin-empty"><Package/><h3>No hay pedidos</h3><p>No hay pedidos para este filtro.</p></div>:filtered.map(o=><article key={o.id}>
-        <div className="admin-order-top"><span><small>PEDIDO</small><strong>#{String(o.order_number).padStart(4,'0')}</strong></span><span className={`branch-pill ${o.branch_id}`}>{o.branch_id==='zakia'?'ZÁKIA':'MILENIO'}</span><span className={`admin-status ${o.status}`}>{statusLabels[o.status]}</span><span className="admin-client-detail"><small>CLIENTE</small><strong>{o.profiles?.full_name||'Cliente KYO'}</strong>{o.profiles?.phone&&<em>{o.profiles.phone}</em>}</span><span><small>TOTAL</small><strong>{money(o.total)}</strong></span></div>
+        <div className="admin-order-top"><span><small>PEDIDO</small><strong>#{String(o.order_number).padStart(4,'0')}</strong></span><span className={`branch-pill ${o.branch_id}`}>{o.branch_id==='zakia'?'ZÁKIA':'MILENIO'}</span><span className={`admin-status ${o.status}`}>{statusLabels[o.status]}</span><span className="admin-client-detail"><small>CLIENTE</small><strong>{o.profiles?.full_name||'Cliente KYO'}</strong>{o.profiles?.phone&&<em>{o.profiles.phone}</em>}</span><span><small>VENTA KYO</small><strong>{money(o.total)}</strong>{Number(o.tip_amount||0)>0&&<em className="admin-tip-amount">+ {money(o.tip_amount)} propina · Cobro {money(Number(o.total||0)+Number(o.tip_amount||0))}</em>}</span></div>
         <div className="admin-order-items-detail">{o.order_items?.map(i=><div key={i.id}><strong>{i.quantity}× {i.product_name}</strong>{i.customizations?.length>0&&<div className="admin-item-customizations">{Object.entries(i.customizations.reduce((g,c)=>{const title=c.template_name||c.group_name||c.customization_name||c.title||'Personalización';(g[title]??=[]).push(c);return g},{})).map(([title,rows])=><span key={title}><b>{title}:</b> {rows.map(c=>c.label||c.option_name||c.name).join(', ')}</span>)}</div>}{i.item_note&&<em><b>Nota:</b> {i.item_note}</em>}</div>)}</div>
         <div className="admin-order-meta"><span><MapPin/> {o.branch_id==='zakia'?'KYO Zákia':'KYO Milenio'} · {o.fulfillment_type==='delivery'?'Delivery':'Pickup'}{o.delivery_address?` · ${o.delivery_address}`:''}</span><span><Clock3/> {new Date(o.created_at).toLocaleString('es-MX')}</span></div>
         {canUpdateStatus?<div className="status-actions">{(o.fulfillment_type==='pickup'?['preparing','ready','delivered','cancelled']:['preparing','ready','on_the_way','delivered','cancelled']).map(s=><button key={s} className={o.status===s?'active':''} onClick={()=>updateStatus(o.id,s)}>{o.fulfillment_type==='pickup'&&s==='ready'?'Listo para recoger':statusLabels[s]}</button>)}</div>:<div className="branch-readonly-note"><ShieldCheck/> Consulta solamente · Los estados se administran desde Cocina o el panel general.</div>}
@@ -302,13 +302,12 @@ function AdminRecords({orders,fixedBranch=null}){
   useEffect(()=>{if(fixedBranch)setBranch(fixedBranch)},[fixedBranch])
   const cutoff=period==='all'?null:new Date(Date.now()-Number(period)*86400000)
   const filtered=orders.filter(o=>o.status!=='cancelled').filter(o=>fixedBranch?o.branch_id===fixedBranch:(branch==='all'||o.branch_id===branch)).filter(o=>!cutoff||new Date(o.created_at)>=cutoff)
-  const total=filtered.reduce((a,o)=>a+Number(o.total||0),0); const delivered=filtered.filter(o=>o.status==='delivered').length
+  const total=filtered.reduce((a,o)=>a+Number(o.total||0),0); const tips=filtered.reduce((a,o)=>a+Number(o.tip_amount||0),0); const delivered=filtered.filter(o=>o.status==='delivered').length
   const pickup=filtered.filter(o=>o.fulfillment_type==='pickup').length; const delivery=filtered.filter(o=>o.fulfillment_type==='delivery').length
   const branchName=fixedBranch==='zakia'?'Zákia':fixedBranch==='milenio'?'Milenio':''
-  return <div className="admin-records"><div className="records-toolbar"><div><small>SUCURSAL</small>{fixedBranch?<div className={`fixed-branch-label ${fixedBranch}`}><MapPin/> KYO {branchName}</div>:<BranchFilter value={branch} onChange={setBranch}/>}</div><div><small>PERIODO</small><div className="admin-filter-row">{[['1','1 día'],['7','7 días'],['30','30 días'],['all','Toda la vida']].map(([v,l])=><button key={v} className={period===v?'active':''} onClick={()=>setPeriod(v)}>{l}</button>)}</div></div></div><div className="record-summary extended"><article><DollarSign/><span><small>VENTAS</small><strong>{money(total)}</strong></span></article><article><Package/><span><small>PEDIDOS</small><strong>{filtered.length}</strong></span></article><article><Truck/><span><small>DELIVERY</small><strong>{delivery}</strong></span></article><article><Store/><span><small>PICKUP</small><strong>{pickup}</strong></span></article><article><ClipboardList/><span><small>ENTREGADOS</small><strong>{delivered}</strong></span></article></div><div className="records-table"><div className="records-head"><span>Pedido</span><span>Fecha</span><span>Sucursal</span><span>Cliente</span><span>Estado</span><span>Total</span></div>{filtered.map(o=><div className="records-row" key={o.id}><strong>#{String(o.order_number).padStart(4,'0')}</strong><span>{new Date(o.created_at).toLocaleString('es-MX')}</span><span><b className={`branch-pill small ${o.branch_id}`}>{o.branch_id==='zakia'?'Zákia':'Milenio'}</b></span><span>{o.profiles?.full_name||'Cliente KYO'}</span><span>{statusLabels[o.status]}</span><strong>{money(o.total)}</strong></div>)}{!filtered.length&&<div className="records-empty">No hay registros para este periodo.</div>}</div></div>
+  return <div className="admin-records"><div className="records-toolbar"><div><small>SUCURSAL</small>{fixedBranch?<div className={`fixed-branch-label ${fixedBranch}`}><MapPin/> KYO {branchName}</div>:<BranchFilter value={branch} onChange={setBranch}/>}</div><div><small>PERIODO</small><div className="admin-filter-row">{[['1','1 día'],['7','7 días'],['30','30 días'],['all','Toda la vida']].map(([v,l])=><button key={v} className={period===v?'active':''} onClick={()=>setPeriod(v)}>{l}</button>)}</div></div></div><div className="record-summary extended tips"><article><DollarSign/><span><small>VENTAS KYO</small><strong>{money(total)}</strong></span></article><article className="tip-kpi"><Gift/><span><small>PROPINAS REPARTIDORES</small><strong>{money(tips)}</strong></span></article><article><Package/><span><small>PEDIDOS</small><strong>{filtered.length}</strong></span></article><article><Truck/><span><small>DELIVERY</small><strong>{delivery}</strong></span></article><article><Store/><span><small>PICKUP</small><strong>{pickup}</strong></span></article><article><ClipboardList/><span><small>ENTREGADOS</small><strong>{delivered}</strong></span></article></div><div className="records-table tip-records-table"><div className="records-head"><span>Pedido</span><span>Fecha</span><span>Sucursal</span><span>Cliente</span><span>Estado</span><span>Venta</span><span>Propina</span></div>{filtered.map(o=><div className="records-row" key={o.id}><strong>#{String(o.order_number).padStart(4,'0')}</strong><span>{new Date(o.created_at).toLocaleString('es-MX')}</span><span><b className={`branch-pill small ${o.branch_id}`}>{o.branch_id==='zakia'?'Zákia':'Milenio'}</b></span><span>{o.profiles?.full_name||'Cliente KYO'}</span><span>{statusLabels[o.status]}</span><strong>{money(o.total)}</strong><strong className={Number(o.tip_amount||0)>0?'record-tip':'record-no-tip'}>{Number(o.tip_amount||0)>0?money(o.tip_amount):'—'}</strong></div>)}{!filtered.length&&<div className="records-empty">No hay registros para este periodo.</div>}</div></div>
 }
 
-const csvCell=value=>`"${String(value??'').replace(/"/g,'""')}"`
 const downloadCsv=(filename,rows)=>{
   const csv='\ufeff'+rows.map(row=>row.map(csvCell).join(',')).join('\n')
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'})
@@ -326,6 +325,9 @@ function AdminStats({orders,fixedBranch=null}){
   const valid=scoped.filter(o=>o.status!=='cancelled')
   const delivered=valid.filter(o=>o.status==='delivered')
   const sales=valid.reduce((sum,o)=>sum+Number(o.total||0),0)
+  const tips=valid.reduce((sum,o)=>sum+Number(o.tip_amount||0),0)
+  const tippedOrders=valid.filter(o=>Number(o.tip_amount||0)>0).length
+  const avgTip=tippedOrders?tips/tippedOrders:0
   const avgTicket=valid.length?sales/valid.length:0
   const pickup=valid.filter(o=>o.fulfillment_type==='pickup').length
   const delivery=valid.filter(o=>o.fulfillment_type==='delivery').length
@@ -373,7 +375,7 @@ function AdminStats({orders,fixedBranch=null}){
     const rows=[
       ['KYO Sushi · Reporte KPI'],
       ['Sucursal',branchLabelFor(effectiveBranch)],['Periodo',periodLabel(period)],['Generado',new Date().toLocaleString('es-MX')],[],
-      ['KPI','Valor'],['Ventas',sales.toFixed(2)],['Pedidos válidos',valid.length],['Ticket promedio',avgTicket.toFixed(2)],['Clientes únicos',uniqueCustomers],['Delivery',delivery],['Pickup',pickup],['Cancelados',cancelled],['Tasa de cancelación',`${cancellationRate.toFixed(1)}%`],['Productos por pedido',avgItems.toFixed(2)],['Día con más pedidos',peakDay?`${peakDay[0]} (${peakDay[1].orders})`:'Sin datos'],['Hora pico',peakHour?`${String(peakHour[0]).padStart(2,'0')}:00 (${peakHour[1]} pedidos)`:'Sin datos'],[],
+      ['KPI','Valor'],['Ventas KYO (sin propinas)',sales.toFixed(2)],['Propinas para repartidores',tips.toFixed(2)],['Pedidos con propina',tippedOrders],['Propina promedio',avgTip.toFixed(2)],['Pedidos válidos',valid.length],['Ticket promedio',avgTicket.toFixed(2)],['Clientes únicos',uniqueCustomers],['Delivery',delivery],['Pickup',pickup],['Cancelados',cancelled],['Tasa de cancelación',`${cancellationRate.toFixed(1)}%`],['Productos por pedido',avgItems.toFixed(2)],['Día con más pedidos',peakDay?`${peakDay[0]} (${peakDay[1].orders})`:'Sin datos'],['Hora pico',peakHour?`${String(peakHour[0]).padStart(2,'0')}:00 (${peakHour[1]} pedidos)`:'Sin datos'],[],
       ['TOP 5 PRODUCTOS','Unidades','Ventas estimadas'],...topProducts.map(p=>[p.name,p.quantity,p.revenue.toFixed(2)]),[],
       ['TOP 5 CLIENTES','Teléfono','Pedidos','Gasto'],...topCustomers.map(c=>[c.name,c.phone,c.orders,c.spend.toFixed(2)]),[],
       ['SUCURSAL','Pedidos','Ventas'],...branchRows.map(b=>[branchLabelFor(b.id),b.orders,b.sales.toFixed(2)])
@@ -382,11 +384,11 @@ function AdminStats({orders,fixedBranch=null}){
   }
 
   const exportRecords=()=>{
-    const rows=[['Pedido','Fecha','Sucursal','Tipo','Estado','Cliente','Teléfono','Subtotal','Total','Productos','Dirección']]
+    const rows=[['Pedido','Fecha','Sucursal','Tipo','Estado','Cliente','Teléfono','Subtotal','Envío','Venta KYO','Propina %','Propina repartidor','Total cobrado','Productos','Dirección']]
     scoped.forEach(o=>rows.push([
       `#${String(o.order_number).padStart(4,'0')}`,
       new Date(o.created_at).toLocaleString('es-MX'),branchLabelFor(o.branch_id),o.fulfillment_type==='delivery'?'Delivery':'Pickup',statusLabels[o.status]||o.status,
-      o.profiles?.full_name||'Cliente KYO',o.profiles?.phone||'',Number(o.subtotal||0).toFixed(2),Number(o.total||0).toFixed(2),
+      o.profiles?.full_name||'Cliente KYO',o.profiles?.phone||'',Number(o.subtotal||0).toFixed(2),Number(o.delivery_fee||0).toFixed(2),Number(o.total||0).toFixed(2),Number(o.tip_percentage||0),Number(o.tip_amount||0).toFixed(2),(Number(o.total||0)+Number(o.tip_amount||0)).toFixed(2),
       (o.order_items||[]).map(i=>`${i.quantity}x ${i.product_name}`).join(' | '),o.delivery_address||''
     ]))
     downloadCsv(`kyo-registro-completo-${fileScope}-${dateTag}.csv`,rows)
@@ -400,7 +402,8 @@ function AdminStats({orders,fixedBranch=null}){
     </div>
 
     <div className="stats-kpi-grid">
-      <article><DollarSign/><span><small>VENTAS</small><strong>{money(sales)}</strong><em>{valid.length} pedidos válidos</em></span></article>
+      <article><DollarSign/><span><small>VENTAS KYO</small><strong>{money(sales)}</strong><em>sin incluir propinas</em></span></article>
+      <article className="tip-kpi"><Gift/><span><small>PROPINAS</small><strong>{money(tips)}</strong><em>{tippedOrders} pedidos · prom. {money(avgTip)}</em></span></article>
       <article><TrendingUp/><span><small>TICKET PROMEDIO</small><strong>{money(avgTicket)}</strong><em>por pedido</em></span></article>
       <article><Users/><span><small>CLIENTES ÚNICOS</small><strong>{uniqueCustomers}</strong><em>en el periodo</em></span></article>
       <article><ShoppingBag/><span><small>PRODUCTOS / PEDIDO</small><strong>{avgItems.toFixed(1)}</strong><em>{totalItems} unidades vendidas</em></span></article>

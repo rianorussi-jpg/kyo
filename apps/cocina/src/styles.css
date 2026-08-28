@@ -3378,3 +3378,6 @@ main{
   .kitchen-sound-btn{min-width:44px!important;padding:0 9px!important}
   .kitchen-sound-btn span{display:none!important}
 }
+
+/* v26 propina */
+.kitchen-payment-total{display:grid;gap:2px}.kitchen-payment-total small{font-size:9px;color:#e86f1c;font-weight:850}

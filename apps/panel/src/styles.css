@@ -3566,3 +3566,13 @@ main{
 .branch-comparison{display:grid;grid-template-columns:1fr 1fr;gap:10px}.branch-comparison>div{display:flex;align-items:center;justify-content:space-between;padding:14px;border:1px solid #ebe7e2;border-radius:12px}.branch-comparison span{display:grid;gap:3px}.branch-comparison span strong{font-size:10px}.branch-comparison span small{color:#99938b;font-size:8px}.branch-comparison>div>strong{font-size:14px}
 @media(max-width:1100px){.record-summary.extended{grid-template-columns:repeat(3,minmax(0,1fr))}.stats-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.stats-three-col{grid-template-columns:1fr}.stats-two-col{grid-template-columns:1fr}}
 @media(max-width:700px){.record-summary.extended,.stats-kpi-grid{grid-template-columns:1fr 1fr}.stats-toolbar{align-items:stretch}.stats-downloads{width:100%;margin-left:0}.stats-downloads button{flex:1;justify-content:center}.branch-comparison{grid-template-columns:1fr}}
+
+
+/* ===== v26 · propinas separadas de ventas ===== */
+.admin-tip-amount{display:block!important;margin-top:3px;color:#e86f1c!important;font-size:8px!important;font-style:normal!important;font-weight:800!important;white-space:nowrap}
+.record-summary.tips{grid-template-columns:repeat(6,minmax(0,1fr))}
+.tip-kpi{border-color:#f1d5c1!important;background:#fff9f4!important}
+.tip-kpi svg,.tip-kpi strong{color:#e86f1c!important}
+.tip-records-table .records-head,.tip-records-table .records-row{grid-template-columns:.7fr 1.25fr .8fr 1.2fr .8fr .8fr .8fr}
+.record-tip{color:#e86f1c!important}.record-no-tip{color:#aaa!important;font-weight:600!important}
+@media(max-width:1100px){.record-summary.tips{grid-template-columns:repeat(3,1fr)}}

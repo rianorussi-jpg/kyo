@@ -3699,3 +3699,22 @@ main{
 @media(max-width:760px){
   .quick-row .quick-time{font-size:10px!important}
 }
+
+
+/* ===== v26 · envío gratis + propina repartidor ===== */
+.free-delivery{color:#39b86b!important;font-weight:900!important;letter-spacing:.03em}
+.tip-section{margin-bottom:12px}
+.tip-title{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.tip-title h2{margin:0 0 5px}
+.tip-title p{margin:0;color:#858580;font-size:10px;line-height:1.45;max-width:420px}
+.tip-title>strong{color:var(--kyo-orange);font-size:17px;white-space:nowrap}
+.tip-options{display:grid;grid-template-columns:1.25fr repeat(3,1fr);gap:8px;margin-top:14px}
+.tip-options button{min-height:52px;border:1px solid #30302f;border-radius:12px;background:#181818;color:#b7b7b3;display:grid;place-content:center;gap:2px;font-size:10px;font-weight:800;cursor:pointer}
+.tip-options button strong{font-size:13px;color:#f0f0ed}
+.tip-options button small{font-size:8px;color:#858580}
+.tip-options button.active{border-color:var(--kyo-orange);background:#241b15;color:#fff;box-shadow:0 0 0 1px rgba(232,111,28,.2) inset}
+.tip-options button.active strong,.tip-options button.active small{color:var(--kyo-orange)}
+.tip-summary-row strong{color:var(--kyo-orange)!important}
+.tip-accounting-note{display:block!important;margin-top:8px!important;padding-top:8px!important;border-top:1px dashed #333!important;color:#777!important;font-size:9px!important;text-align:right}
+.order-tip-note{display:block;color:#e86f1c!important;font-size:8px!important;margin-top:2px}
+@media(max-width:560px){.tip-options{grid-template-columns:1fr 1fr}.tip-options button{min-height:50px}}
