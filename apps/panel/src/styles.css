@@ -3433,3 +3433,88 @@ main{
     width:100%;
   }
 }
+
+
+/* ===== v24 · Panel por sucursal ===== */
+.admin-scope-badge{
+  display:inline-flex;
+  width:max-content;
+  margin-top:5px;
+  padding:4px 7px;
+  border-radius:999px;
+  background:#fff2e9;
+  color:#d55d12;
+  font-size:8px;
+  font-style:normal;
+  font-weight:900;
+  letter-spacing:.08em;
+}
+.branch-manager-notice,
+.branch-menu-help{
+  display:flex;
+  align-items:flex-start;
+  gap:11px;
+  margin:0 0 18px;
+  padding:13px 15px;
+  border:1px solid #f1d5c1;
+  border-radius:14px;
+  background:#fff9f4;
+}
+.branch-manager-notice>svg,
+.branch-menu-help>svg{
+  width:19px;
+  height:19px;
+  flex:0 0 auto;
+  margin-top:1px;
+  color:#e86f1c;
+}
+.branch-manager-notice span,
+.branch-menu-help span{
+  display:grid;
+  gap:3px;
+}
+.branch-manager-notice strong,
+.branch-menu-help strong{
+  color:#282724;
+  font-size:12px;
+}
+.branch-manager-notice small,
+.branch-menu-help small{
+  color:#77736d;
+  font-size:10px;
+  line-height:1.45;
+}
+.fixed-branch-label{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  min-height:36px;
+  padding:0 12px;
+  border:1px solid #e5e2dd;
+  border-radius:10px;
+  background:#fff;
+  color:#383733;
+  font-size:11px;
+  font-weight:850;
+}
+.fixed-branch-label svg{
+  width:15px;
+  height:15px;
+  color:#e86f1c;
+}
+.branch-readonly-note{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  margin-top:12px;
+  padding-top:10px;
+  border-top:1px solid #ece9e4;
+  color:#8a857e;
+  font-size:9px;
+  font-weight:700;
+}
+.branch-readonly-note svg{
+  width:14px;
+  height:14px;
+  color:#e86f1c;
+}

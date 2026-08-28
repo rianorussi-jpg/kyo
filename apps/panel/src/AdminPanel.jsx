@@ -42,20 +42,29 @@ export function AdminPanel({auth,catalog}){
   const [editing,setEditing]=useState(null)
   const [creating,setCreating]=useState(false)
 
+  const panelBranch=auth.profile?.panel_branch||null
+  const isBranchManager=Boolean(panelBranch)
+  const branchLabel=panelBranch==='zakia'?'Zákia':panelBranch==='milenio'?'Milenio':'General'
+
   const loadOrders=async()=>{
     if(!supabase)return
-    const {data}=await supabase.from('orders').select('*, order_items(*), profiles(full_name,phone)').order('created_at',{ascending:false}).limit(1000)
+    let query=supabase.from('orders').select('*, order_items(*), profiles(full_name,phone)').order('created_at',{ascending:false}).limit(1000)
+    if(panelBranch)query=query.eq('branch_id',panelBranch)
+    const {data}=await query
     setOrders(data||[])
   }
 
   useEffect(()=>{
     loadOrders()
     if(!supabase)return
-    const ch=supabase.channel('admin-orders').on('postgres_changes',{event:'*',schema:'public',table:'orders'},loadOrders).subscribe()
+    const realtimeFilter=panelBranch?`branch_id=eq.${panelBranch}`:undefined
+    const changes={event:'*',schema:'public',table:'orders',...(realtimeFilter?{filter:realtimeFilter}:{})}
+    const ch=supabase.channel(`admin-orders-${panelBranch||'all'}`).on('postgres_changes',changes,loadOrders).subscribe()
     return()=>{supabase.removeChannel(ch)}
-  },[])
+  },[panelBranch])
 
   const updateStatus=async(id,status)=>{
+    if(isBranchManager)return
     await supabase.from('orders').update({status}).eq('id',id)
     loadOrders()
     if(status==='delivered')auth.refreshProfile()
@@ -66,26 +75,30 @@ export function AdminPanel({auth,catalog}){
   return <main className="admin-shell">
     <aside className="admin-side">
       <Brand/>
-      <div className="admin-user"><div>{(auth.profile?.full_name||'A')[0]}</div><span><strong>{auth.profile?.full_name||'Administrador'}</strong><small>{auth.user.email}</small></span></div>
+      <div className="admin-user"><div>{(auth.profile?.full_name||'A')[0]}</div><span><strong>{auth.profile?.full_name||'Administrador'}</strong><small>{auth.user.email}</small>{isBranchManager&&<em className="admin-scope-badge">SOLO {branchLabel.toUpperCase()}</em>}</span></div>
       <nav>
         <button className={tab==='orders'?'active':''} onClick={()=>setTab('orders')}><LayoutDashboard/> Pedidos</button>
         <button className={tab==='records'?'active':''} onClick={()=>setTab('records')}><ClipboardList/> Registros</button>
         <button className={tab==='menu'?'active':''} onClick={()=>setTab('menu')}><Utensils/> Menú</button>
-        <button className={tab==='settings'?'active':''} onClick={()=>setTab('settings')}><Settings/> Configuración</button>
+        {!isBranchManager&&<button className={tab==='settings'?'active':''} onClick={()=>setTab('settings')}><Settings/> Configuración</button>}
       </nav>
       <button className="admin-logout" onClick={()=>supabase.auth.signOut()}><LogOut/> Cerrar sesión</button>
     </aside>
     <section className="admin-main">
-      <header><div><span>KYO CONTROL</span><h1>{title}</h1></div>{tab==='menu'&&<button className="primary" onClick={()=>setCreating(true)}><Plus/> Nuevo producto</button>}</header>
+      <header>
+        <div><span>{isBranchManager?`KYO ${branchLabel.toUpperCase()} · ACCESO DE SUCURSAL`:'KYO CONTROL'}</span><h1>{title}</h1></div>
+        {tab==='menu'&&!isBranchManager&&<button className="primary" onClick={()=>setCreating(true)}><Plus/> Nuevo producto</button>}
+      </header>
+      {isBranchManager&&<div className="branch-manager-notice"><ShieldCheck/><span><strong>Panel de {branchLabel}</strong><small>Solo ves información de esta sucursal. En Menú únicamente puedes prender o apagar productos para {branchLabel}.</small></span></div>}
       {tab==='orders'
-        ?<AdminOrders orders={orders} updateStatus={updateStatus}/>
+        ?<AdminOrders orders={orders} updateStatus={updateStatus} fixedBranch={panelBranch} canUpdateStatus={!isBranchManager}/>
         :tab==='records'
-          ?<AdminRecords orders={orders}/>
-          :tab==='settings'
+          ?<AdminRecords orders={orders} fixedBranch={panelBranch}/>
+          :tab==='settings'&&!isBranchManager
             ?<AdminSettings catalog={catalog}/>
-            :<AdminMenuManager catalog={catalog} onEdit={setEditing}/>}
+            :<AdminMenuManager catalog={catalog} onEdit={isBranchManager?null:setEditing} fixedBranch={panelBranch}/>}
     </section>
-    {(editing||creating)&&<ProductEditor product={editing} catalog={catalog} onClose={()=>{setEditing(null);setCreating(false)}} onSaved={()=>{setEditing(null);setCreating(false);catalog.refresh()}}/>}
+    {!isBranchManager&&(editing||creating)&&<ProductEditor product={editing} catalog={catalog} onClose={()=>{setEditing(null);setCreating(false)}} onSaved={()=>{setEditing(null);setCreating(false);catalog.refresh()}}/>}
   </main>
 }
 
@@ -256,25 +269,41 @@ function AdminSettings({catalog}){
 }
 function BranchFilter({value,onChange}){return <div className="admin-filter-row"><button className={value==='all'?'active':''} onClick={()=>onChange('all')}>Todas</button><button className={value==='zakia'?'active':''} onClick={()=>onChange('zakia')}>Zákia</button><button className={value==='milenio'?'active':''} onClick={()=>onChange('milenio')}>Milenio</button></div>}
 
-function AdminOrders({orders,updateStatus}){
-  const [branch,setBranch]=useState('all'); const filtered=orders.filter(o=>branch==='all'||o.branch_id===branch)
-  return <><div className="admin-section-toolbar"><div><small>FILTRAR SUCURSAL</small><BranchFilter value={branch} onChange={setBranch}/></div></div><div className="admin-orders">{filtered.length===0?<div className="admin-empty"><Package/><h3>No hay pedidos</h3><p>No hay pedidos para este filtro.</p></div>:filtered.map(o=><article key={o.id}><div className="admin-order-top"><span><small>PEDIDO</small><strong>#{String(o.order_number).padStart(4,'0')}</strong></span><span className={`branch-pill ${o.branch_id}`}>{o.branch_id==='zakia'?'ZÁKIA':'MILENIO'}</span><span className={`admin-status ${o.status}`}>{statusLabels[o.status]}</span><span className="admin-client-detail"><small>CLIENTE</small><strong>{o.profiles?.full_name||'Cliente KYO'}</strong>{o.profiles?.phone&&<em>{o.profiles.phone}</em>}</span><span><small>TOTAL</small><strong>{money(o.total)}</strong></span></div><div className="admin-order-items-detail">{o.order_items?.map(i=><div key={i.id}><strong>{i.quantity}× {i.product_name}</strong>{i.customizations?.length>0&&<div className="admin-item-customizations">{Object.entries(i.customizations.reduce((g,c)=>{const title=c.template_name||c.group_name||c.customization_name||c.title||'Personalización';(g[title]??=[]).push(c);return g},{})).map(([title,rows])=><span key={title}><b>{title}:</b> {rows.map(c=>c.label||c.option_name||c.name).join(', ')}</span>)}</div>}{i.item_note&&<em><b>Nota:</b> {i.item_note}</em>}</div>)}</div><div className="admin-order-meta"><span><MapPin/> {o.branch_id==='zakia'?'KYO Zákia':'KYO Milenio'} · {o.fulfillment_type==='delivery'?'Delivery':'Pickup'}{o.delivery_address?` · ${o.delivery_address}`:''}</span><span><Clock3/> {new Date(o.created_at).toLocaleString('es-MX')}</span></div><div className="status-actions">{(o.fulfillment_type==='pickup'?['preparing','ready','delivered','cancelled']:['preparing','ready','on_the_way','delivered','cancelled']).map(s=><button key={s} className={o.status===s?'active':''} onClick={()=>updateStatus(o.id,s)}>{o.fulfillment_type==='pickup'&&s==='ready'?'Listo para recoger':statusLabels[s]}</button>)}</div></article>)}</div></>
+function AdminOrders({orders,updateStatus,fixedBranch=null,canUpdateStatus=true}){
+  const [branch,setBranch]=useState(fixedBranch||'all')
+  useEffect(()=>{if(fixedBranch)setBranch(fixedBranch)},[fixedBranch])
+  const filtered=orders.filter(o=>(fixedBranch?o.branch_id===fixedBranch:(branch==='all'||o.branch_id===branch)))
+  const branchName=(fixedBranch==='zakia'?'Zákia':fixedBranch==='milenio'?'Milenio':'')
+  return <>
+    <div className="admin-section-toolbar"><div><small>SUCURSAL</small>{fixedBranch?<div className={`fixed-branch-label ${fixedBranch}`}><MapPin/> KYO {branchName}</div>:<BranchFilter value={branch} onChange={setBranch}/>}</div></div>
+    <div className="admin-orders">
+      {filtered.length===0?<div className="admin-empty"><Package/><h3>No hay pedidos</h3><p>No hay pedidos para este filtro.</p></div>:filtered.map(o=><article key={o.id}>
+        <div className="admin-order-top"><span><small>PEDIDO</small><strong>#{String(o.order_number).padStart(4,'0')}</strong></span><span className={`branch-pill ${o.branch_id}`}>{o.branch_id==='zakia'?'ZÁKIA':'MILENIO'}</span><span className={`admin-status ${o.status}`}>{statusLabels[o.status]}</span><span className="admin-client-detail"><small>CLIENTE</small><strong>{o.profiles?.full_name||'Cliente KYO'}</strong>{o.profiles?.phone&&<em>{o.profiles.phone}</em>}</span><span><small>TOTAL</small><strong>{money(o.total)}</strong></span></div>
+        <div className="admin-order-items-detail">{o.order_items?.map(i=><div key={i.id}><strong>{i.quantity}× {i.product_name}</strong>{i.customizations?.length>0&&<div className="admin-item-customizations">{Object.entries(i.customizations.reduce((g,c)=>{const title=c.template_name||c.group_name||c.customization_name||c.title||'Personalización';(g[title]??=[]).push(c);return g},{})).map(([title,rows])=><span key={title}><b>{title}:</b> {rows.map(c=>c.label||c.option_name||c.name).join(', ')}</span>)}</div>}{i.item_note&&<em><b>Nota:</b> {i.item_note}</em>}</div>)}</div>
+        <div className="admin-order-meta"><span><MapPin/> {o.branch_id==='zakia'?'KYO Zákia':'KYO Milenio'} · {o.fulfillment_type==='delivery'?'Delivery':'Pickup'}{o.delivery_address?` · ${o.delivery_address}`:''}</span><span><Clock3/> {new Date(o.created_at).toLocaleString('es-MX')}</span></div>
+        {canUpdateStatus?<div className="status-actions">{(o.fulfillment_type==='pickup'?['preparing','ready','delivered','cancelled']:['preparing','ready','on_the_way','delivered','cancelled']).map(s=><button key={s} className={o.status===s?'active':''} onClick={()=>updateStatus(o.id,s)}>{o.fulfillment_type==='pickup'&&s==='ready'?'Listo para recoger':statusLabels[s]}</button>)}</div>:<div className="branch-readonly-note"><ShieldCheck/> Consulta solamente · Los estados se administran desde Cocina o el panel general.</div>}
+      </article>)}
+    </div>
+  </>
 }
 
-function AdminRecords({orders}){
-  const [branch,setBranch]=useState('all'); const [period,setPeriod]=useState('1')
+function AdminRecords({orders,fixedBranch=null}){
+  const [branch,setBranch]=useState(fixedBranch||'all'); const [period,setPeriod]=useState('1')
+  useEffect(()=>{if(fixedBranch)setBranch(fixedBranch)},[fixedBranch])
   const cutoff=period==='all'?null:new Date(Date.now()-Number(period)*86400000)
-  const filtered=orders.filter(o=>o.status!=='cancelled').filter(o=>branch==='all'||o.branch_id===branch).filter(o=>!cutoff||new Date(o.created_at)>=cutoff)
+  const filtered=orders.filter(o=>o.status!=='cancelled').filter(o=>fixedBranch?o.branch_id===fixedBranch:(branch==='all'||o.branch_id===branch)).filter(o=>!cutoff||new Date(o.created_at)>=cutoff)
   const total=filtered.reduce((a,o)=>a+Number(o.total||0),0); const delivered=filtered.filter(o=>o.status==='delivered').length
-  return <div className="admin-records"><div className="records-toolbar"><div><small>SUCURSAL</small><BranchFilter value={branch} onChange={setBranch}/></div><div><small>PERIODO</small><div className="admin-filter-row">{[['1','1 día'],['7','7 días'],['30','30 días'],['all','Toda la vida']].map(([v,l])=><button key={v} className={period===v?'active':''} onClick={()=>setPeriod(v)}>{l}</button>)}</div></div></div><div className="record-summary"><article><DollarSign/><span><small>VENTAS</small><strong>{money(total)}</strong></span></article><article><Package/><span><small>PEDIDOS</small><strong>{filtered.length}</strong></span></article><article><ClipboardList/><span><small>ENTREGADOS</small><strong>{delivered}</strong></span></article></div><div className="records-table"><div className="records-head"><span>Pedido</span><span>Fecha</span><span>Sucursal</span><span>Cliente</span><span>Estado</span><span>Total</span></div>{filtered.map(o=><div className="records-row" key={o.id}><strong>#{String(o.order_number).padStart(4,'0')}</strong><span>{new Date(o.created_at).toLocaleString('es-MX')}</span><span><b className={`branch-pill small ${o.branch_id}`}>{o.branch_id==='zakia'?'Zákia':'Milenio'}</b></span><span>{o.profiles?.full_name||'Cliente KYO'}</span><span>{statusLabels[o.status]}</span><strong>{money(o.total)}</strong></div>)}{!filtered.length&&<div className="records-empty">No hay registros para este periodo.</div>}</div></div>
+  const branchName=fixedBranch==='zakia'?'Zákia':fixedBranch==='milenio'?'Milenio':''
+  return <div className="admin-records"><div className="records-toolbar"><div><small>SUCURSAL</small>{fixedBranch?<div className={`fixed-branch-label ${fixedBranch}`}><MapPin/> KYO {branchName}</div>:<BranchFilter value={branch} onChange={setBranch}/>}</div><div><small>PERIODO</small><div className="admin-filter-row">{[['1','1 día'],['7','7 días'],['30','30 días'],['all','Toda la vida']].map(([v,l])=><button key={v} className={period===v?'active':''} onClick={()=>setPeriod(v)}>{l}</button>)}</div></div></div><div className="record-summary"><article><DollarSign/><span><small>VENTAS</small><strong>{money(total)}</strong></span></article><article><Package/><span><small>PEDIDOS</small><strong>{filtered.length}</strong></span></article><article><ClipboardList/><span><small>ENTREGADOS</small><strong>{delivered}</strong></span></article></div><div className="records-table"><div className="records-head"><span>Pedido</span><span>Fecha</span><span>Sucursal</span><span>Cliente</span><span>Estado</span><span>Total</span></div>{filtered.map(o=><div className="records-row" key={o.id}><strong>#{String(o.order_number).padStart(4,'0')}</strong><span>{new Date(o.created_at).toLocaleString('es-MX')}</span><span><b className={`branch-pill small ${o.branch_id}`}>{o.branch_id==='zakia'?'Zákia':'Milenio'}</b></span><span>{o.profiles?.full_name||'Cliente KYO'}</span><span>{statusLabels[o.status]}</span><strong>{money(o.total)}</strong></div>)}{!filtered.length&&<div className="records-empty">No hay registros para este periodo.</div>}</div></div>
 }
 
-function AdminMenuManager({catalog,onEdit}){
+function AdminMenuManager({catalog,onEdit,fixedBranch=null}){
   const [view,setView]=useState('products')
   const [saving,setSaving]=useState('')
-  const branches=catalog.branches||[]
+  const branches=(catalog.branches||[]).filter(b=>!fixedBranch||b.id===fixedBranch)
 
   const setProductBranch=async(product,branchId,available)=>{
+    if(fixedBranch&&branchId!==fixedBranch)return
     const key=`${product.id}:${branchId}`;setSaving(key)
     const {error}=await supabase.from('product_branch_availability').upsert(
       {product_id:product.id,branch_id:branchId,available},
@@ -293,11 +322,12 @@ function AdminMenuManager({catalog,onEdit}){
   }))
 
   return <>
-    <div className="menu-admin-tabs">
+    {!fixedBranch&&<div className="menu-admin-tabs">
       <button className={view==='products'?'active':''} onClick={()=>setView('products')}>Productos por categoría</button>
       <button className={view==='categories'?'active':''} onClick={()=>setView('categories')}>Categorías y subcategorías</button>
-    </div>
-    {view==='products'
+    </div>}
+    {fixedBranch&&<div className="branch-menu-help"><Utensils/><span><strong>Disponibilidad de productos</strong><small>Prende o apaga únicamente la disponibilidad para KYO {fixedBranch==='zakia'?'Zákia':'Milenio'}. Nombre, precio, foto, categorías y personalizaciones solo los puede editar la cuenta general.</small></span></div>}
+    {view==='products'||fixedBranch
       ?<div className="admin-menu-by-category">
         {groups.map(({cat,products,subs})=><section className="admin-menu-category" key={cat.id}>
           <div className="admin-menu-category-head"><div><small>CATEGORÍA</small><h2>{cat.name}</h2></div><span>{products.length} producto{products.length===1?'':'s'}</span></div>
@@ -315,17 +345,17 @@ function AdminMenuManager({catalog,onEdit}){
 
 function AdminProductCard({product,branches,saving,setProductBranch,onEdit}){
   return <article className={`admin-product-card-branch ${!product.available?'disabled':''}`}>
-    <img src={product.image||product.image_url}/>
+    <img src={product.image||product.image_url} alt={product.name}/>
     <div className="admin-product-card-info">
       <small>{product.subcategory||product.category}</small>
       <h3>{product.name}</h3>
       <strong>{money(product.price)}</strong>
       <span>{product.available?'Disponible en menú':'Agotado globalmente'}</span>
       <div className="branch-availability-row">
-        {branches.map(b=>{const available=product.branchAvailability?.[b.id]!==false;const key=`${product.id}:${b.id}`;return <button type="button" key={b.id} disabled={saving===key||!product.available} className={available?'available':'unavailable'} onClick={()=>setProductBranch(product,b.id,!available)}><span>{b.short||b.name}</span><b>{available?'Disponible':'No disponible'}</b></button>})}
+        {branches.map(b=>{const available=product.branchAvailability?.[b.id]!==false;const key=`${product.id}:${b.id}`;return <button type="button" key={b.id} disabled={saving===key||!product.available} className={available?'available':'unavailable'} onClick={()=>setProductBranch(product,b.id,!available)}><span>{b.short||b.name}</span><b>{saving===key?'Guardando...':available?'Disponible':'No disponible'}</b></button>})}
       </div>
     </div>
-    <button className="admin-edit-product" onClick={()=>onEdit(product)}><Pencil/></button>
+    {onEdit&&<button className="admin-edit-product" onClick={()=>onEdit(product)}><Pencil/></button>}
   </article>
 }
 
