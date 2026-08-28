@@ -308,10 +308,30 @@ function AdminRecords({orders,fixedBranch=null}){
   return <div className="admin-records"><div className="records-toolbar"><div><small>SUCURSAL</small>{fixedBranch?<div className={`fixed-branch-label ${fixedBranch}`}><MapPin/> KYO {branchName}</div>:<BranchFilter value={branch} onChange={setBranch}/>}</div><div><small>PERIODO</small><div className="admin-filter-row">{[['1','1 día'],['7','7 días'],['30','30 días'],['all','Toda la vida']].map(([v,l])=><button key={v} className={period===v?'active':''} onClick={()=>setPeriod(v)}>{l}</button>)}</div></div></div><div className="record-summary extended tips"><article><DollarSign/><span><small>VENTAS KYO</small><strong>{money(total)}</strong></span></article><article className="tip-kpi"><Gift/><span><small>PROPINAS REPARTIDORES</small><strong>{money(tips)}</strong></span></article><article><Package/><span><small>PEDIDOS</small><strong>{filtered.length}</strong></span></article><article><Truck/><span><small>DELIVERY</small><strong>{delivery}</strong></span></article><article><Store/><span><small>PICKUP</small><strong>{pickup}</strong></span></article><article><ClipboardList/><span><small>ENTREGADOS</small><strong>{delivered}</strong></span></article></div><div className="records-table tip-records-table"><div className="records-head"><span>Pedido</span><span>Fecha</span><span>Sucursal</span><span>Cliente</span><span>Estado</span><span>Venta</span><span>Propina</span></div>{filtered.map(o=><div className="records-row" key={o.id}><strong>#{String(o.order_number).padStart(4,'0')}</strong><span>{new Date(o.created_at).toLocaleString('es-MX')}</span><span><b className={`branch-pill small ${o.branch_id}`}>{o.branch_id==='zakia'?'Zákia':'Milenio'}</b></span><span>{o.profiles?.full_name||'Cliente KYO'}</span><span>{statusLabels[o.status]}</span><strong>{money(o.total)}</strong><strong className={Number(o.tip_amount||0)>0?'record-tip':'record-no-tip'}>{Number(o.tip_amount||0)>0?money(o.tip_amount):'—'}</strong></div>)}{!filtered.length&&<div className="records-empty">No hay registros para este periodo.</div>}</div></div>
 }
 
+const csvCell=value=>{
+  const text=value===null||value===undefined?'':String(value)
+  return `"${text.replace(/"/g,'""')}"`
+}
+
 const downloadCsv=(filename,rows)=>{
-  const csv='\ufeff'+rows.map(row=>row.map(csvCell).join(',')).join('\n')
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'})
-  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url)
+  try{
+    const csv='\ufeff'+rows.map(row=>row.map(csvCell).join(',')).join('\r\n')
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'})
+    const url=URL.createObjectURL(blob)
+    const a=document.createElement('a')
+    a.href=url
+    a.download=filename
+    a.style.display='none'
+    document.body.appendChild(a)
+    a.click()
+    window.setTimeout(()=>{
+      a.remove()
+      URL.revokeObjectURL(url)
+    },1000)
+  }catch(error){
+    console.error('No se pudo descargar CSV',error)
+    alert('No pudimos generar la descarga. Intenta nuevamente.')
+  }
 }
 const periodLabel=p=>p==='1'?'Hoy / últimas 24 h':p==='7'?'Últimos 7 días':p==='30'?'Últimos 30 días':p==='90'?'Últimos 90 días':'Toda la vida'
 const branchLabelFor=b=>b==='zakia'?'Zákia':b==='milenio'?'Milenio':'Todas las sucursales'
