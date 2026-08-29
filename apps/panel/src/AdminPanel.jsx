@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react'
-import { RefreshCw, ShieldCheck, LayoutDashboard, Utensils, LogOut, Plus, Package, MapPin, Clock3, Pencil, X, Upload, Trash2, Save, ClipboardList, DollarSign, RotateCcw, RotateCw, ZoomIn, ZoomOut, Settings, Gift, BarChart3, TrendingUp, Users, ShoppingBag, Truck, Store, Download, Percent, ReceiptText, CalendarDays } from 'lucide-react'
+import { RefreshCw, ShieldCheck, LayoutDashboard, Utensils, LogOut, Plus, Package, MapPin, Clock3, Pencil, X, Upload, Trash2, Save, ClipboardList, DollarSign, RotateCcw, RotateCw, ZoomIn, ZoomOut, Settings, Gift, BarChart3, TrendingUp, Users, ShoppingBag, Truck, Store, Download, Percent, ReceiptText, CalendarDays, CreditCard } from 'lucide-react'
 import { supabase, MENU_BUCKET } from './supabase'
 
 const money = n => `$${Number(n || 0).toLocaleString('es-MX', {maximumFractionDigits: 2})}`
 const statusLabels = {
-  preparing:'Preparando', ready:'Listo', on_the_way:'En camino', delivered:'Entregado', cancelled:'Cancelado'
+  pending_payment:'Esperando pago', preparing:'Preparando', ready:'Listo', on_the_way:'En camino', delivered:'Entregado', cancelled:'Cancelado'
 }
 
 const defaultBusinessHours={
@@ -291,7 +291,7 @@ function AdminOrders({orders,updateStatus,fixedBranch=null,canUpdateStatus=true}
         <div className="admin-order-top"><span><small>PEDIDO</small><strong>#{String(o.order_number).padStart(4,'0')}</strong></span><span className={`branch-pill ${o.branch_id}`}>{o.branch_id==='zakia'?'ZÁKIA':'MILENIO'}</span><span className={`admin-status ${o.status}`}>{statusLabels[o.status]}</span><span className="admin-client-detail"><small>CLIENTE</small><strong>{o.profiles?.full_name||'Cliente KYO'}</strong>{o.profiles?.phone&&<em>{o.profiles.phone}</em>}</span><span><small>VENTA KYO</small><strong>{money(o.total)}</strong>{Number(o.tip_amount||0)>0&&<em className="admin-tip-amount">+ {money(o.tip_amount)} propina · Cobro {money(Number(o.total||0)+Number(o.tip_amount||0))}</em>}</span></div>
         <div className="admin-order-items-detail">{o.order_items?.map(i=><div key={i.id}><strong>{i.quantity}× {i.product_name}</strong>{i.customizations?.length>0&&<div className="admin-item-customizations">{Object.entries(i.customizations.reduce((g,c)=>{const title=c.template_name||c.group_name||c.customization_name||c.title||'Personalización';(g[title]??=[]).push(c);return g},{})).map(([title,rows])=><span key={title}><b>{title}:</b> {rows.map(c=>c.label||c.option_name||c.name).join(', ')}</span>)}</div>}{i.item_note&&<em><b>Nota:</b> {i.item_note}</em>}</div>)}</div>
         <div className="admin-order-meta"><span><MapPin/> {o.branch_id==='zakia'?'KYO Zákia':'KYO Milenio'} · {o.fulfillment_type==='delivery'?'Delivery':'Pickup'}{o.delivery_address?` · ${o.delivery_address}`:''}</span><span><Clock3/> {new Date(o.created_at).toLocaleString('es-MX')}</span></div>
-        {canUpdateStatus?<div className="status-actions">{(o.fulfillment_type==='pickup'?['preparing','ready','delivered','cancelled']:['preparing','ready','on_the_way','delivered','cancelled']).map(s=><button key={s} className={o.status===s?'active':''} onClick={()=>updateStatus(o.id,s)}>{o.fulfillment_type==='pickup'&&s==='ready'?'Listo para recoger':statusLabels[s]}</button>)}</div>:<div className="branch-readonly-note"><ShieldCheck/> Consulta solamente · Los estados se administran desde Cocina o el panel general.</div>}
+        {o.status==='pending_payment'?<div className="branch-readonly-note stripe-payment-wait"><CreditCard/> Esperando confirmación de Stripe · No se puede enviar a Cocina manualmente.</div>:canUpdateStatus?<div className="status-actions">{(o.fulfillment_type==='pickup'?['preparing','ready','delivered','cancelled']:['preparing','ready','on_the_way','delivered','cancelled']).map(s=><button key={s} className={o.status===s?'active':''} onClick={()=>updateStatus(o.id,s)}>{o.fulfillment_type==='pickup'&&s==='ready'?'Listo para recoger':statusLabels[s]}</button>)}</div>:<div className="branch-readonly-note"><ShieldCheck/> Consulta solamente · Los estados se administran desde Cocina o el panel general.</div>}
       </article>)}
     </div>
   </>
@@ -301,7 +301,7 @@ function AdminRecords({orders,fixedBranch=null}){
   const [branch,setBranch]=useState(fixedBranch||'all'); const [period,setPeriod]=useState('1')
   useEffect(()=>{if(fixedBranch)setBranch(fixedBranch)},[fixedBranch])
   const cutoff=period==='all'?null:new Date(Date.now()-Number(period)*86400000)
-  const filtered=orders.filter(o=>o.status!=='cancelled').filter(o=>fixedBranch?o.branch_id===fixedBranch:(branch==='all'||o.branch_id===branch)).filter(o=>!cutoff||new Date(o.created_at)>=cutoff)
+  const filtered=orders.filter(o=>!['cancelled','pending_payment'].includes(o.status)).filter(o=>fixedBranch?o.branch_id===fixedBranch:(branch==='all'||o.branch_id===branch)).filter(o=>!cutoff||new Date(o.created_at)>=cutoff)
   const total=filtered.reduce((a,o)=>a+Number(o.total||0),0); const tips=filtered.reduce((a,o)=>a+Number(o.tip_amount||0),0); const delivered=filtered.filter(o=>o.status==='delivered').length
   const pickup=filtered.filter(o=>o.fulfillment_type==='pickup').length; const delivery=filtered.filter(o=>o.fulfillment_type==='delivery').length
   const branchName=fixedBranch==='zakia'?'Zákia':fixedBranch==='milenio'?'Milenio':''
@@ -342,7 +342,8 @@ function AdminStats({orders,fixedBranch=null}){
   useEffect(()=>{if(fixedBranch)setBranch(fixedBranch)},[fixedBranch])
   const cutoff=period==='all'?null:new Date(Date.now()-Number(period)*86400000)
   const scoped=orders.filter(o=>fixedBranch?o.branch_id===fixedBranch:(branch==='all'||o.branch_id===branch)).filter(o=>!cutoff||new Date(o.created_at)>=cutoff)
-  const valid=scoped.filter(o=>o.status!=='cancelled')
+  const businessScoped=scoped.filter(o=>o.status!=='pending_payment')
+  const valid=businessScoped.filter(o=>o.status!=='cancelled')
   const delivered=valid.filter(o=>o.status==='delivered')
   const sales=valid.reduce((sum,o)=>sum+Number(o.total||0),0)
   const tips=valid.reduce((sum,o)=>sum+Number(o.tip_amount||0),0)
@@ -351,8 +352,8 @@ function AdminStats({orders,fixedBranch=null}){
   const avgTicket=valid.length?sales/valid.length:0
   const pickup=valid.filter(o=>o.fulfillment_type==='pickup').length
   const delivery=valid.filter(o=>o.fulfillment_type==='delivery').length
-  const cancelled=scoped.filter(o=>o.status==='cancelled').length
-  const cancellationRate=scoped.length?cancelled/scoped.length*100:0
+  const cancelled=businessScoped.filter(o=>o.status==='cancelled').length
+  const cancellationRate=businessScoped.length?cancelled/businessScoped.length*100:0
   const uniqueCustomers=new Set(valid.map(o=>o.user_id).filter(Boolean)).size
   const totalItems=valid.reduce((sum,o)=>sum+(o.order_items||[]).reduce((x,i)=>x+Number(i.quantity||0),0),0)
   const avgItems=valid.length?totalItems/valid.length:0
@@ -405,7 +406,7 @@ function AdminStats({orders,fixedBranch=null}){
 
   const exportRecords=()=>{
     const rows=[['Pedido','Fecha','Sucursal','Tipo','Estado','Cliente','Teléfono','Subtotal','Envío','Venta KYO','Propina %','Propina repartidor','Total cobrado','Productos','Dirección']]
-    scoped.forEach(o=>rows.push([
+    businessScoped.forEach(o=>rows.push([
       `#${String(o.order_number).padStart(4,'0')}`,
       new Date(o.created_at).toLocaleString('es-MX'),branchLabelFor(o.branch_id),o.fulfillment_type==='delivery'?'Delivery':'Pickup',statusLabels[o.status]||o.status,
       o.profiles?.full_name||'Cliente KYO',o.profiles?.phone||'',Number(o.subtotal||0).toFixed(2),Number(o.delivery_fee||0).toFixed(2),Number(o.total||0).toFixed(2),Number(o.tip_percentage||0),Number(o.tip_amount||0).toFixed(2),(Number(o.total||0)+Number(o.tip_amount||0)).toFixed(2),

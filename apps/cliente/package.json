@@ -15,7 +15,9 @@
     "react-dom": "latest",
     "react-router-dom": "latest",
     "lucide-react": "latest",
-    "@supabase/supabase-js": "^2.57.4"
+    "@supabase/supabase-js": "^2.57.4",
+    "@stripe/react-stripe-js": "latest",
+    "@stripe/stripe-js": "latest"
   },
   "devDependencies": {}
 }
