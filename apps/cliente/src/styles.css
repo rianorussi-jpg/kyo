@@ -3725,10 +3725,3 @@ main{
 
 .stripe-save-card-check{display:flex;gap:11px;align-items:flex-start;margin:12px 0 18px;padding:13px 14px;border:1px solid #353535;border-radius:14px;background:#191919}.stripe-save-card-check input{margin-top:3px;width:18px;height:18px;accent-color:var(--kyo-orange,#ff6a00)}.stripe-save-card-check span{display:grid;gap:3px}.stripe-save-card-check strong{font-size:13px}.stripe-save-card-check small{color:#8f8f8b;font-size:11px;line-height:1.35}
 
-
-/* ===== v27.5.2 Inicio: tasa KYO Rewards más visible ===== */
-.quick-row .quick-rewards-rate{
-  color:#ffffff!important;
-  font-weight:900!important;
-  opacity:1!important;
-}
