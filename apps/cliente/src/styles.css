@@ -3724,3 +3724,11 @@ main{
 .stripe-payment-page{min-height:100vh}.stripe-payment-card{max-width:620px;margin:22px auto!important;padding:24px!important}.stripe-secure-head{display:flex;gap:14px;align-items:flex-start;margin-bottom:20px}.stripe-secure-head>span{width:44px;height:44px;display:grid;place-items:center;border-radius:14px;background:#292019;color:var(--kyo-orange,#ff6a00);flex:0 0 44px}.stripe-secure-head small{font-size:10px;font-weight:900;letter-spacing:.12em;color:#8d8d89}.stripe-secure-head h2{margin:4px 0 5px!important}.stripe-secure-head p{margin:0;color:#9a9a96;font-size:12px;line-height:1.45}.stripe-charge-summary{display:flex;justify-content:space-between;align-items:center;padding:18px 0 12px;margin-top:18px;border-top:1px solid #333}.stripe-charge-summary span{color:#aaa}.stripe-charge-summary strong{font-size:24px}.stripe-pay-button{margin-top:8px}.stripe-back-button{width:100%;border:0;background:transparent;color:#aaa;padding:13px;font-weight:700}.stripe-legal-note{text-align:center;color:#777;font-size:10px;line-height:1.45;margin:6px auto 0;max-width:460px}.stripe-verifying-card{display:grid;justify-items:center;text-align:center}.payment-warning{background:#2d241e!important;color:var(--kyo-orange,#ff6a00)!important}
 
 .stripe-save-card-check{display:flex;gap:11px;align-items:flex-start;margin:12px 0 18px;padding:13px 14px;border:1px solid #353535;border-radius:14px;background:#191919}.stripe-save-card-check input{margin-top:3px;width:18px;height:18px;accent-color:var(--kyo-orange,#ff6a00)}.stripe-save-card-check span{display:grid;gap:3px}.stripe-save-card-check strong{font-size:13px}.stripe-save-card-check small{color:#8f8f8b;font-size:11px;line-height:1.35}
+
+
+/* ===== v27.5.2 Inicio: tasa KYO Rewards más visible ===== */
+.quick-row .quick-rewards-rate{
+  color:#ffffff!important;
+  font-weight:900!important;
+  opacity:1!important;
+}
