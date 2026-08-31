@@ -50,7 +50,9 @@ function sendOrderToRider(order,rider){
   const customer=order.profiles?.full_name||'Cliente KYO'
   const phone=order.profiles?.phone||'Sin teléfono'
   const reference=order.delivery_reference?`\nReferencia: ${order.delivery_reference}`:''
-  const tip=Number(order.tip_amount||0);const charge=Number(order.total||0)+tip;const payment=order.payment_method==='card'?'Pagado con tarjeta':`Cobrar: ${money(charge)} en efectivo`;const tipLine=tip>0?`\nPropina: ${money(tip)}`:'';const message=`Hola ${riderName}, pedido KYO #${orderNo} listo para reparto.\n\nDirección: ${address}${reference}\nCliente: ${customer}\nTeléfono: ${phone}\nSucursal: ${branchName(order.branch_id)}\n${payment}${tipLine}`
+  const charge=Number(order.total||0)+Number(order.tip_amount||0)
+  const payment=order.payment_method==='card'?`Pagado con tarjeta · Total: ${money(charge)}`:`Cobrar: ${money(charge)} en efectivo`
+  const message=`Hola ${riderName}, pedido KYO #${orderNo} listo para reparto.\n\nDirección: ${address}${reference}\nCliente: ${customer}\nTeléfono: ${phone}\nSucursal: ${branchName(order.branch_id)}\n${payment}`
   window.open(`https://wa.me/${riderPhones[rider]}?text=${encodeURIComponent(message)}`,'_blank','noopener,noreferrer')
 }
 
