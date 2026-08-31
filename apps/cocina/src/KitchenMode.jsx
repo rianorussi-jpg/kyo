@@ -60,7 +60,7 @@ function sendOrderToRider(order,rider){
   const phone=order.profiles?.phone||'Sin teléfono'
   const reference=order.delivery_reference?`\nReferencia: ${order.delivery_reference}`:''
   const charge=Number(order.total||0)+Number(order.tip_amount||0)
-  const payment=order.payment_method==='card'?`Pagado con tarjeta · Total: ${money(charge)}`:`Cobrar: ${money(charge)} en efectivo`
+  const payment=order.payment_method==='card'?`Pagado con tarjeta · Total: ${money(charge)}`:order.payment_method==='terminal'?`Cobrar: ${money(charge)} con terminal`:`Cobrar: ${money(charge)} en efectivo`
   const message=`Hola ${riderName}, pedido KYO #${orderNo} listo para reparto.\n\nDirección: ${address}${reference}\nCliente: ${customer}\nTeléfono: ${phone}\nSucursal: ${branchName(order.branch_id)}\n${payment}`
   window.open(`https://wa.me/${riderPhone}?text=${encodeURIComponent(message)}`,'_blank','noopener,noreferrer')
 }
