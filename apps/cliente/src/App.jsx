@@ -1230,8 +1230,11 @@ function SuccessPage({setCart}){
       if(stopped)return
       if(error){setPaymentError('No pudimos verificar el pago todavía. Puedes revisarlo en Pedidos.');setVerifying(false);return}
       if(data?.payment_status==='paid'||data?.status==='preparing'){setCart?.([]);setVerifying(false);return}
-      if(data?.payment_status==='failed'){setPaymentError('El pago no fue aprobado. Regresa al checkout para intentarlo de nuevo.');setVerifying(false);return}
-      tries+=1;if(tries<16)setTimeout(check,500);else{setPaymentError('Stripe está terminando de confirmar el pago. Revisa Pedidos en unos momentos.');setVerifying(false)}
+      // Stripe puede emitir estados intermedios muy seguidos. No mostramos un rechazo
+      // por un `failed` transitorio mientras el webhook definitivo todavía está llegando.
+      tries+=1
+      if(data?.payment_status==='failed'&&tries>=12){setPaymentError('El pago no fue aprobado. Regresa al checkout para intentarlo de nuevo.');setVerifying(false);return}
+      if(tries<24)setTimeout(check,500);else{setPaymentError('Stripe está terminando de confirmar el pago. Revisa Pedidos en unos momentos.');setVerifying(false)}
     }
     check();return()=>{stopped=true}
   },[orderId,setCart])
