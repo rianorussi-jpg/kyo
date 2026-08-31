@@ -16,6 +16,11 @@ const defaultBusinessHours={
   sat:{closed:false,open:'13:00',close:'22:00'},
   sun:{closed:false,open:'13:00',close:'22:00'}
 }
+const defaultDeliveryRiders={
+  zakia:[{name:'Pau',phone:'525623449135'},{name:'Rodri',phone:'525542641224'}],
+  milenio:[{name:'Pau',phone:'525623449135'},{name:'Rodri',phone:'525542641224'}]
+}
+
 const businessDayLabels=[
   ['mon','Lunes'],['tue','Martes'],['wed','Miércoles'],['thu','Jueves'],
   ['fri','Viernes'],['sat','Sábado'],['sun','Domingo']
@@ -126,13 +131,15 @@ function AdminSettings({catalog}){
   const [imageOptimizeBusy,setImageOptimizeBusy]=useState(false)
   const [imageOptimizeProgress,setImageOptimizeProgress]=useState({done:0,total:0})
   const [imageOptimizeMessage,setImageOptimizeMessage]=useState('')
+  const [deliveryRiders,setDeliveryRiders]=useState(catalog.settings?.delivery_riders||defaultDeliveryRiders)
 
   useEffect(()=>{
     setMinimum(catalog.settings?.minimum_order||200)
     setRewardPoints(catalog.settings?.points_reward_cost||250)
     setRewardProduct(catalog.settings?.points_reward_product_id||'')
     setBusinessHours(catalog.settings?.business_hours||defaultBusinessHours)
-  },[catalog.settings?.minimum_order,catalog.settings?.points_reward_cost,catalog.settings?.points_reward_product_id,catalog.settings?.business_hours])
+    setDeliveryRiders(catalog.settings?.delivery_riders||defaultDeliveryRiders)
+  },[catalog.settings?.minimum_order,catalog.settings?.points_reward_cost,catalog.settings?.points_reward_product_id,catalog.settings?.business_hours,catalog.settings?.delivery_riders])
 
   const save=async()=>{
     setBusy(true);setMessage('')
@@ -142,6 +149,7 @@ function AdminSettings({catalog}){
       points_reward_cost:Math.max(1,Math.round(Number(rewardPoints||1))),
       points_reward_product_id:rewardProduct||null,
       business_hours:businessHours,
+      delivery_riders:deliveryRiders,
       updated_at:new Date().toISOString()
     }
     const {error}=await supabase.from('app_settings').upsert(payload,{onConflict:'id'})
@@ -218,6 +226,18 @@ function AdminSettings({catalog}){
     setBusinessHours(prev=>({...prev,[day]:{...(prev[day]||defaultBusinessHours[day]),[field]:value}}))
   }
 
+  const updateDeliveryRider=(branch,index,field,value)=>{
+    setDeliveryRiders(prev=>{
+      const base={
+        zakia:[...(prev?.zakia||defaultDeliveryRiders.zakia)].map(r=>({...r})),
+        milenio:[...(prev?.milenio||defaultDeliveryRiders.milenio)].map(r=>({...r}))
+      }
+      while(base[branch].length<2)base[branch].push({name:'',phone:''})
+      base[branch][index]={...base[branch][index],[field]:value}
+      return base
+    })
+  }
+
   const grouped=(catalog.categoryObjects||[]).filter(c=>!c.parent_id).sort((a,b)=>a.sort_order-b.sort_order)
 
   return <div className="admin-settings-page">
@@ -237,6 +257,23 @@ function AdminSettings({catalog}){
         </div>})}
       </div>
       <small className="business-timezone-note">Zona horaria fija: America/Mexico_City (CDMX)</small>
+    </section>
+
+    <section className="admin-settings-card riders-settings-card">
+      <div className="settings-card-head"><span><Truck/></span><div><small>REPARTIDORES</small><h2>Contactos de reparto por sucursal</h2><p>Configura los dos repartidores que Cocina mostrará para cada sucursal. Puedes cambiar nombre y teléfono cuando lo necesites sin editar código.</p></div></div>
+      <div className="riders-branches-grid">
+        {[['zakia','KYO Zákia'],['milenio','KYO Milenio']].map(([branch,label])=><div className={`riders-branch-card ${branch}`} key={branch}>
+          <div className="riders-branch-head"><MapPin/><div><small>SUCURSAL</small><strong>{label}</strong></div></div>
+          <div className="riders-list">
+            {[0,1].map(index=>{const rider=(deliveryRiders?.[branch]||defaultDeliveryRiders[branch])?.[index]||{name:'',phone:''};return <div className="rider-config-row" key={index}>
+              <b>{index+1}</b>
+              <label className="admin-field"><span>Nombre</span><input value={rider.name||''} onChange={e=>updateDeliveryRider(branch,index,'name',e.target.value)} placeholder={`Repartidor ${index+1}`}/></label>
+              <label className="admin-field"><span>WhatsApp / teléfono</span><input type="tel" value={rider.phone||''} onChange={e=>updateDeliveryRider(branch,index,'phone',e.target.value)} placeholder="4421234567"/></label>
+            </div>})}
+          </div>
+          <small className="rider-phone-note">Puedes escribir 10 dígitos, +52 o 52. Cocina lo convierte automáticamente al formato de WhatsApp.</small>
+        </div>)}
+      </div>
     </section>
 
     <section className="admin-settings-card">

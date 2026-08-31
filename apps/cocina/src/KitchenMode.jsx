@@ -38,13 +38,22 @@ function playNewOrderBeep(ctx){
   }
 }
 
-const riderPhones={
-  pau:'525623449135',
-  rodri:'525542641224'
+const fallbackRiders={
+  zakia:[{name:'Pau',phone:'525623449135'},{name:'Rodri',phone:'525542641224'}],
+  milenio:[{name:'Pau',phone:'525623449135'},{name:'Rodri',phone:'525542641224'}]
+}
+
+const whatsappPhone=value=>{
+  const digits=String(value||'').replace(/\D/g,'')
+  if(digits.length===10)return `52${digits}`
+  if(digits.length===12&&digits.startsWith('52'))return digits
+  return digits
 }
 
 function sendOrderToRider(order,rider){
-  const riderName=rider==='pau'?'Pau':'Rodri'
+  const riderName=rider?.name?.trim()||'Repartidor'
+  const riderPhone=whatsappPhone(rider?.phone)
+  if(!riderPhone){alert('Este repartidor no tiene un teléfono configurado en Panel.');return}
   const orderNo=String(order.order_number).padStart(4,'0')
   const address=order.delivery_address||'Dirección no disponible'
   const customer=order.profiles?.full_name||'Cliente KYO'
@@ -53,8 +62,9 @@ function sendOrderToRider(order,rider){
   const charge=Number(order.total||0)+Number(order.tip_amount||0)
   const payment=order.payment_method==='card'?`Pagado con tarjeta · Total: ${money(charge)}`:`Cobrar: ${money(charge)} en efectivo`
   const message=`Hola ${riderName}, pedido KYO #${orderNo} listo para reparto.\n\nDirección: ${address}${reference}\nCliente: ${customer}\nTeléfono: ${phone}\nSucursal: ${branchName(order.branch_id)}\n${payment}`
-  window.open(`https://wa.me/${riderPhones[rider]}?text=${encodeURIComponent(message)}`,'_blank','noopener,noreferrer')
+  window.open(`https://wa.me/${riderPhone}?text=${encodeURIComponent(message)}`,'_blank','noopener,noreferrer')
 }
+
 
 export function KitchenGate({auth,children}){
   if(auth.loading)return <main className="kitchen-login"><RefreshCw className="spin"/><p>Comprobando acceso...</p></main>
@@ -69,6 +79,7 @@ export function KitchenMode({auth}){
   const [orders,setOrders]=useState([])
   const [loading,setLoading]=useState(true)
   const [soundReady,setSoundReady]=useState(false)
+  const [riders,setRiders]=useState(fallbackRiders[branch])
   const audioRef=useRef(null)
 
   const enableSound=async()=>{
@@ -77,6 +88,14 @@ export function KitchenMode({auth}){
       if(audioRef.current?.state==='suspended')await audioRef.current.resume()
       setSoundReady(!!audioRef.current)
     }catch{setSoundReady(false)}
+  }
+
+  const loadRiders=async()=>{
+    if(!supabase)return
+    const {data}=await supabase.from('app_settings').select('delivery_riders').eq('id','main').maybeSingle()
+    const configured=data?.delivery_riders?.[branch]
+    if(Array.isArray(configured)&&configured.length)setRiders([0,1].map(i=>configured[i]||{name:`Repartidor ${i+1}`,phone:''}))
+    else setRiders(fallbackRiders[branch])
   }
 
   const load=async()=>{
@@ -90,6 +109,7 @@ export function KitchenMode({auth}){
 
   useEffect(()=>{
     load()
+    loadRiders()
     if(!supabase)return
     const ch=supabase.channel(`kitchen-${branch}`)
       .on('postgres_changes',{event:'*',schema:'public',table:'orders',filter:`branch_id=eq.${branch}`},payload=>{
@@ -104,7 +124,7 @@ export function KitchenMode({auth}){
 
   const setStatus=async(id,status)=>{await supabase.from('orders').update({status}).eq('id',id);load()}
   const preparing=orders.filter(o=>o.status==='preparing');const ready=orders.filter(o=>o.status==='ready');const route=orders.filter(o=>o.status==='on_the_way')
-  return <main className="kitchen-shell"><header className="kitchen-head"><div><span>MODO COCINA</span><h1>{branchName(branch)}</h1><p>Los pedidos nuevos entran automáticamente a Preparando.</p></div><div className="kitchen-head-actions"><button className={`kitchen-sound-btn ${soundReady?'ready':''}`} onClick={enableSound}>{soundReady?<Volume2/>:<VolumeX/>}<span>{soundReady?'Sonido activo':'Activar sonido'}</span></button><button onClick={load}><RefreshCw className={loading?'spin':''}/></button><button onClick={()=>supabase.auth.signOut()}><LogOut/></button></div></header><section className="kitchen-board"><KitchenColumn title="Preparando" count={preparing.length} orders={preparing} actionLabel="Marcar listo" actionIcon={<Check/>} onAction={id=>setStatus(id,'ready')}/><KitchenColumn title="Listos" count={ready.length} orders={ready} actionLabel={o=>o.fulfillment_type==='pickup'?'Marcar entregado':'Salió a ruta'} actionIcon={o=>o.fulfillment_type==='pickup'?<Check/>:<Bike/>} onAction={(id,o)=>setStatus(id,o.fulfillment_type==='pickup'?'delivered':'on_the_way')}/></section>{route.length>0&&<section className="route-strip">
+  return <main className="kitchen-shell"><header className="kitchen-head"><div><span>MODO COCINA</span><h1>{branchName(branch)}</h1><p>Los pedidos nuevos entran automáticamente a Preparando.</p></div><div className="kitchen-head-actions"><button className={`kitchen-sound-btn ${soundReady?'ready':''}`} onClick={enableSound}>{soundReady?<Volume2/>:<VolumeX/>}<span>{soundReady?'Sonido activo':'Activar sonido'}</span></button><button onClick={()=>{load();loadRiders()}}><RefreshCw className={loading?'spin':''}/></button><button onClick={()=>supabase.auth.signOut()}><LogOut/></button></div></header><section className="kitchen-board"><KitchenColumn title="Preparando" count={preparing.length} orders={preparing} actionLabel="Marcar listo" actionIcon={<Check/>} onAction={id=>setStatus(id,'ready')}/><KitchenColumn title="Listos" count={ready.length} orders={ready} actionLabel={o=>o.fulfillment_type==='pickup'?'Marcar entregado':'Salió a ruta'} actionIcon={o=>o.fulfillment_type==='pickup'?<Check/>:<Bike/>} onAction={(id,o)=>setStatus(id,o.fulfillment_type==='pickup'?'delivered':'on_the_way')}/></section>{route.length>0&&<section className="route-strip">
     <div className="route-strip-head"><span>EN CAMINO</span><strong>{route.length} pedido{route.length!==1?'s':''}</strong></div>
     <div className="route-orders-list">
       {route.map(o=><div className="route-order-row" key={o.id}>
@@ -113,8 +133,7 @@ export function KitchenMode({auth}){
           <small>{o.delivery_address}</small>
         </div>
         <div className="route-order-actions">
-          <button className="rider-btn pau" onClick={()=>sendOrderToRider(o,'pau')}>Enviar a Pau</button>
-          <button className="rider-btn rodri" onClick={()=>sendOrderToRider(o,'rodri')}>Enviar a Rodri</button>
+          {riders.map((rider,index)=><button key={index} className={`rider-btn rider-${index+1}`} onClick={()=>sendOrderToRider(o,rider)}>Enviar a {rider?.name?.trim()||`Repartidor ${index+1}`}</button>)}
           <button className="delivered-btn" onClick={()=>setStatus(o.id,'delivered')}>Marcar entregado <ArrowRight/></button>
         </div>
       </div>)}

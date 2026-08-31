@@ -3381,3 +3381,7 @@ main{
 
 /* v26 propina */
 .kitchen-payment-total{display:grid;gap:2px}.kitchen-payment-total small{font-size:9px;color:#e86f1c;font-weight:850}
+
+
+/* ===== v27.4 · repartidores dinámicos por sucursal ===== */
+.rider-btn.rider-1,.rider-btn.rider-2{white-space:nowrap}
