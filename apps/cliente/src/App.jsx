@@ -1203,7 +1203,7 @@ function CheckoutPage({cart,total,auth,catalog,addressBook,destination,setDestin
     if(e1){setBusy(false);setError(friendlyError(e1,'order'));return}
     const order=Array.isArray(data)?data[0]:data
     setDestination(type==='delivery'?{mode:'delivery',addressId:selected,branchId:chosenBranch}:{mode:'pickup',addressId:null,branchId:pickupBranch})
-    if(payment==='cash'){
+    if(payment!=='card'){
       setBusy(false);setCart([]);nav('/success',{state:{orderNumber:order?.order_number,fulfillmentType:type}});return
     }
     const {data:stripeData,error:stripeError}=await supabase.functions.invoke('stripe-create-payment-intent',{body:{order_id:order?.id,save_payment_method:saveCard}})
