@@ -3592,3 +3592,33 @@ main{
 
 /* ===== v27.4 · repartidores configurables ===== */
 .riders-branches-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.riders-branch-card{padding:15px;border:1px solid #e8e3dc;border-radius:15px;background:#faf9f7}.riders-branch-head{display:flex;align-items:center;gap:9px;margin-bottom:13px}.riders-branch-head>svg{width:18px;height:18px;color:#e86f1c}.riders-branch-head>div{display:grid;gap:2px}.riders-branch-head small{color:#a39d95;font-size:7px;font-weight:900;letter-spacing:.1em}.riders-branch-head strong{color:#302e2a;font-size:12px}.riders-list{display:grid;gap:10px}.rider-config-row{display:grid;grid-template-columns:28px minmax(0,1fr) minmax(0,1fr);align-items:end;gap:9px;padding:10px;border:1px solid #ebe6df;border-radius:12px;background:#fff}.rider-config-row>b{display:grid;place-items:center;width:28px;height:40px;border-radius:9px;background:#fff3ea;color:#e86f1c;font-size:11px}.rider-config-row .admin-field{gap:5px}.rider-config-row .admin-field input{padding:10px 11px}.rider-phone-note{display:block;margin-top:10px;color:#99928a;font-size:8px;line-height:1.5}@media(max-width:900px){.riders-branches-grid{grid-template-columns:1fr}}@media(max-width:620px){.rider-config-row{grid-template-columns:28px 1fr}.rider-config-row .admin-field:last-child{grid-column:2}}
+
+
+/* ===== KYO Push Notifications ===== */
+.admin-notifications-page{display:grid;gap:16px;max-width:900px}
+.notification-compose-card{max-width:720px}
+.notification-form{display:grid;gap:14px}
+.notification-form .admin-field>small{align-self:flex-end;color:#999;font-size:10px}
+.notification-form textarea{min-height:112px}
+.notification-preview{display:grid;grid-template-columns:46px 1fr;gap:12px;align-items:start;background:#f2f2f2;border:1px solid #e2e2e2;border-radius:18px;padding:14px;max-width:520px}
+.notification-preview-icon{width:46px;height:46px;border-radius:12px;background:#111;color:#fff;display:grid;place-items:center;font:900 12px 'Montserrat',sans-serif;letter-spacing:-.5px}
+.notification-preview>div:last-child{min-width:0}
+.notification-preview small{display:block;color:#8b8b8b;font-size:9px;font-weight:800;letter-spacing:.06em}
+.notification-preview strong{display:block;margin-top:2px;font-size:13px}
+.notification-preview p{margin:3px 0 0;color:#555;font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+.notification-send-btn{justify-self:start;min-width:190px}
+.notification-send-btn svg{width:17px}
+.notification-send-btn:disabled{opacity:.5;cursor:not-allowed}
+.notification-result{padding:12px 14px;border-radius:12px;font-size:12px;font-weight:700}
+.notification-result.success{background:#e8f6ed;border:1px solid #b8dfc6;color:#22673a}
+.notification-result.error{background:#fff0f0;border:1px solid #f0c2c2;color:#9a2020}
+.notification-auto-list{display:grid;gap:10px}
+.notification-auto-list>div{display:grid;grid-template-columns:105px 1fr;gap:12px;align-items:center;padding:13px;border:1px solid #e8e4de;border-radius:13px;background:#faf9f6}
+.notification-auto-list>b{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#9f2228}
+.notification-auto-list span{display:grid;gap:3px}
+.notification-auto-list strong{font-size:13px}
+.notification-auto-list small{font-size:11px;color:#777}
+@media(max-width:700px){
+  .notification-auto-list>div{grid-template-columns:1fr;gap:5px}
+  .notification-send-btn{width:100%}
+}

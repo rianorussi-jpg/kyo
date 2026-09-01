@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { RefreshCw, ShieldCheck, LayoutDashboard, Utensils, LogOut, Plus, Package, MapPin, Clock3, Pencil, X, Upload, Trash2, Save, ClipboardList, DollarSign, RotateCcw, RotateCw, ZoomIn, ZoomOut, Settings, Gift, BarChart3, TrendingUp, Users, ShoppingBag, Truck, Store, Download, Percent, ReceiptText, CalendarDays, CreditCard } from 'lucide-react'
+import { RefreshCw, ShieldCheck, LayoutDashboard, Utensils, LogOut, Plus, Package, MapPin, Clock3, Pencil, X, Upload, Trash2, Save, ClipboardList, DollarSign, RotateCcw, RotateCw, ZoomIn, ZoomOut, Settings, Gift, BarChart3, TrendingUp, Users, ShoppingBag, Truck, Store, Download, Percent, ReceiptText, CalendarDays, CreditCard, BellRing, Send } from 'lucide-react'
 import { supabase, MENU_BUCKET } from './supabase'
 
 const money = n => `$${Number(n || 0).toLocaleString('es-MX', {maximumFractionDigits: 2})}`
@@ -82,7 +82,7 @@ export function AdminPanel({auth,catalog}){
     if(status==='delivered')auth.refreshProfile()
   }
 
-  const title=tab==='orders'?'Pedidos':tab==='records'?'Registros':tab==='stats'?'Estadísticas':tab==='settings'?'Configuración':'Menú'
+  const title=tab==='orders'?'Pedidos':tab==='records'?'Registros':tab==='stats'?'Estadísticas':tab==='notifications'?'Notificaciones':tab==='settings'?'Configuración':'Menú'
 
   return <main className="admin-shell">
     <aside className="admin-side">
@@ -93,6 +93,7 @@ export function AdminPanel({auth,catalog}){
         <button className={tab==='records'?'active':''} onClick={()=>setTab('records')}><ClipboardList/> Registros</button>
         <button className={tab==='stats'?'active':''} onClick={()=>setTab('stats')}><BarChart3/> Estadísticas</button>
         <button className={tab==='menu'?'active':''} onClick={()=>setTab('menu')}><Utensils/> Menú</button>
+        {!isBranchManager&&<button className={tab==='notifications'?'active':''} onClick={()=>setTab('notifications')}><BellRing/> Notificaciones</button>}
         {!isBranchManager&&<button className={tab==='settings'?'active':''} onClick={()=>setTab('settings')}><Settings/> Configuración</button>}
       </nav>
       <button className="admin-logout" onClick={()=>supabase.auth.signOut()}><LogOut/> Cerrar sesión</button>
@@ -109,12 +110,130 @@ export function AdminPanel({auth,catalog}){
           ?<AdminRecords orders={orders} fixedBranch={panelBranch}/>
           :tab==='stats'
             ?<AdminStats orders={orders} fixedBranch={panelBranch}/>
-          :tab==='settings'&&!isBranchManager
-            ?<AdminSettings catalog={catalog}/>
-            :<AdminMenuManager catalog={catalog} onEdit={isBranchManager?null:setEditing} fixedBranch={panelBranch}/>}
+          :tab==='notifications'&&!isBranchManager
+            ?<AdminNotifications/>
+            :tab==='settings'&&!isBranchManager
+              ?<AdminSettings catalog={catalog}/>
+              :<AdminMenuManager catalog={catalog} onEdit={isBranchManager?null:setEditing} fixedBranch={panelBranch}/>}
     </section>
     {!isBranchManager&&(editing||creating)&&<ProductEditor product={editing} catalog={catalog} onClose={()=>{setEditing(null);setCreating(false)}} onSaved={()=>{setEditing(null);setCreating(false);catalog.refresh()}}/>}
   </main>
+}
+
+function AdminNotifications(){
+  const [title,setTitle]=useState('KYO Sushi')
+  const [message,setMessage]=useState('')
+  const [busy,setBusy]=useState(false)
+  const [result,setResult]=useState(null)
+
+  const sendBroadcast=async()=>{
+    const cleanTitle=title.trim()
+    const cleanMessage=message.trim()
+    setResult(null)
+
+    if(!cleanTitle)return setResult({ok:false,text:'Escribe un título.'})
+    if(!cleanMessage)return setResult({ok:false,text:'Escribe el mensaje de la notificación.'})
+    if(cleanTitle.length>80)return setResult({ok:false,text:'El título puede tener máximo 80 caracteres.'})
+    if(cleanMessage.length>220)return setResult({ok:false,text:'El mensaje puede tener máximo 220 caracteres.'})
+
+    if(!confirm(`¿Enviar esta notificación a todos los dispositivos registrados?\n\n${cleanTitle}\n${cleanMessage}`))return
+
+    setBusy(true)
+    try{
+      const {data,error}=await supabase.functions.invoke('send-push',{
+        body:{mode:'broadcast',title:cleanTitle,message:cleanMessage}
+      })
+
+      if(error)throw error
+      if(!data?.success)throw new Error(data?.error||'No se pudo enviar la notificación.')
+
+      const sent=Number(data.sent||0)
+      const failed=Number(data.failed||0)
+      setResult({
+        ok:true,
+        text:`Notificación enviada a ${sent} dispositivo${sent===1?'':'s'}${failed?`. ${failed} envío${failed===1?'':'s'} no pudieron completarse.`:'.'}`
+      })
+      setMessage('')
+    }catch(error){
+      console.error('Broadcast push error',error)
+      setResult({ok:false,text:error?.message||'No se pudo enviar la notificación.'})
+    }finally{
+      setBusy(false)
+    }
+  }
+
+  return <div className="admin-notifications-page">
+    <section className="admin-settings-card notification-compose-card">
+      <div className="settings-card-head">
+        <span><BellRing/></span>
+        <div>
+          <small>NOTIFICACIÓN GENERAL</small>
+          <h2>Enviar a clientes</h2>
+          <p>Envía una notificación a todos los dispositivos que tengan KYO instalado y hayan permitido notificaciones.</p>
+        </div>
+      </div>
+
+      <div className="notification-form">
+        <label className="admin-field">
+          <span>Título</span>
+          <input
+            value={title}
+            maxLength={80}
+            onChange={e=>setTitle(e.target.value)}
+            placeholder="KYO Sushi"
+          />
+          <small>{title.length}/80</small>
+        </label>
+
+        <label className="admin-field">
+          <span>Mensaje</span>
+          <textarea
+            value={message}
+            maxLength={220}
+            onChange={e=>setMessage(e.target.value)}
+            placeholder="Ej. Hoy 2x1 en rollos seleccionados. ¡Te esperamos!"
+          />
+          <small>{message.length}/220</small>
+        </label>
+
+        <div className="notification-preview">
+          <div className="notification-preview-icon">KYO</div>
+          <div>
+            <small>AHORA</small>
+            <strong>{title.trim()||'KYO Sushi'}</strong>
+            <p>{message.trim()||'Tu mensaje aparecerá aquí.'}</p>
+          </div>
+        </div>
+
+        {result&&<div className={`notification-result ${result.ok?'success':'error'}`}>{result.text}</div>}
+
+        <button
+          type="button"
+          className="primary notification-send-btn"
+          disabled={busy||!title.trim()||!message.trim()}
+          onClick={sendBroadcast}
+        >
+          <Send/>
+          {busy?'Enviando...':'Enviar a todos'}
+        </button>
+      </div>
+    </section>
+
+    <section className="admin-settings-card notification-auto-card">
+      <div className="settings-card-head">
+        <span><Truck/></span>
+        <div>
+          <small>AUTOMÁTICAS DE PEDIDO</small>
+          <h2>Notificaciones de seguimiento</h2>
+          <p>Estas se envían automáticamente cuando cambia el estado del pedido.</p>
+        </div>
+      </div>
+      <div className="notification-auto-list">
+        <div><b>En camino</b><span><strong>Tu pedido está en camino</strong><small>Se envía al cambiar a on_the_way.</small></span></div>
+        <div><b>Entregado</b><span><strong>Tu pedido se ha entregado</strong><small>Se envía al cambiar a delivered.</small></span></div>
+      </div>
+    </section>
+  </div>
 }
 
 function AdminSettings({catalog}){
