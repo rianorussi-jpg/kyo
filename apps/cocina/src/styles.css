@@ -3397,3 +3397,27 @@ main{
 .kitchen-detail-items{padding:8px 22px 4px}.kitchen-detail-section-title{display:flex;justify-content:space-between;align-items:center;padding-bottom:8px;border-bottom:2px solid #111}.kitchen-detail-section-title span{font-size:10px;letter-spacing:.12em;font-weight:950}.kitchen-detail-section-title b{font-size:11px}.kitchen-detail-items article{padding:14px 0;border-bottom:1px dashed #ccc}.detail-item-main{display:flex;justify-content:space-between;gap:15px}.detail-item-main>span{display:flex;gap:8px}.detail-item-main>span b{color:#d65d0b}.detail-item-main>div{display:grid;text-align:right}.detail-item-main>div small{font-size:9px;color:#777}.detail-customs{margin:8px 0 0 29px;padding:9px 11px;background:#f5f4f1;border-radius:9px;display:grid;gap:6px}.detail-customs p{margin:0;display:grid;gap:2px}.detail-customs b{font-size:9px;text-transform:uppercase;color:#666}.detail-customs span{font-size:11px;font-weight:700}.detail-item-note{margin:8px 0 0 29px;background:#fff4df;border:1px solid #f0d7a4;border-radius:9px;padding:9px;display:grid;gap:3px}.detail-item-note b{font-size:9px}.detail-item-note span{font-size:12px}
 .kitchen-detail-totals{margin:12px 22px;background:#f5f4f1;border-radius:13px;padding:13px;display:grid;gap:7px}.kitchen-detail-totals>div{display:flex;justify-content:space-between}.kitchen-detail-totals .grand{border-top:2px solid #111;padding-top:10px;margin-top:3px;font-size:18px}.kitchen-detail-footer{position:sticky;bottom:0;background:#fff;border-top:1px solid #ddd;padding:14px 22px;display:flex;justify-content:flex-end;gap:8px}.kitchen-detail-footer button{min-height:44px;border-radius:11px;padding:0 17px;font-weight:850;cursor:pointer}.kitchen-detail-footer .secondary{background:#fff;border:1px solid #ccc}.kitchen-detail-footer .primary-print{background:#111;color:#fff;border:1px solid #111;display:flex;align-items:center;gap:7px}.kitchen-detail-footer svg{width:17px}
 @media(max-width:760px){.kitchen-sound-btn span{display:none}.kitchen-sound-btn{width:42px!important;padding:0!important;display:grid!important}.kitchen-detail-backdrop{padding:8px}.kitchen-detail-modal{max-height:96vh;border-radius:16px}.kitchen-detail-fulfillment,.kitchen-detail-customer{grid-template-columns:1fr}.ticket-quick-actions{grid-template-columns:1fr 1fr}.kitchen-detail-head{padding:16px}.kitchen-detail-items,.kitchen-detail-fulfillment,.kitchen-detail-customer{padding-left:16px;padding-right:16px}.kitchen-detail-notes,.kitchen-detail-totals{margin-left:16px;margin-right:16px}.kitchen-detail-footer{padding:12px 16px}}
+
+/* ===== v28.1 · Cocina enfocada + desglose de personalizaciones ===== */
+.ticket-products-hidden{
+  margin:12px 16px!important;
+  width:calc(100% - 32px);
+  min-height:58px;
+  padding:10px 12px;
+  border:1px dashed #c8c8c8;
+  border-radius:12px;
+  background:#f7f7f5;
+  color:#202020;
+  text-align:left;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  cursor:pointer;
+}
+.ticket-products-hidden>span{display:flex;align-items:center;gap:7px}.ticket-products-hidden svg{width:17px}.ticket-products-hidden b{font-size:12px}.ticket-products-hidden small{font-size:9px;color:#777;text-align:right}.ticket-items{display:none!important}
+.detail-item-main>div em{font-style:normal;font-size:9px;color:#777;font-weight:750}
+.detail-price-breakdown{margin:9px 0 0 29px;padding:9px 11px;border:1px solid #e5e2dc;border-radius:9px;background:#fff;display:grid;gap:5px}.detail-price-breakdown>div{display:flex;justify-content:space-between;gap:12px;font-size:10px;color:#666}.detail-price-breakdown>div strong{color:#222}.detail-price-breakdown>.final{padding-top:6px;border-top:1px solid #ddd;font-weight:850;color:#222}
+.detail-customs{gap:9px!important}.detail-customs>section{display:grid;gap:5px}.detail-customs>section>b{font-size:9px;text-transform:uppercase;color:#666}.detail-customs>section>p{display:flex!important;justify-content:space-between;align-items:center;gap:12px;margin:0!important;padding:5px 0;border-top:1px solid #e5e2dc}.detail-customs>section>p:first-of-type{border-top:0}.detail-customs>section>p span{font-size:11px;font-weight:750}.detail-customs>section>p strong{font-size:11px;color:#c9560a;white-space:nowrap}
+.kitchen-detail-footer{flex-wrap:wrap}.kitchen-detail-footer .detail-status-action{min-height:44px;border:1px solid transparent;border-radius:11px;padding:0 17px;display:flex;align-items:center;gap:7px;color:#fff;font-weight:900;cursor:pointer}.detail-status-action.ready-action{background:#1f7547}.detail-status-action.pickup-action{background:#16643d}.detail-status-action.route-action{background:#174c80}.detail-status-action svg{width:17px}
+@media(max-width:620px){.ticket-products-hidden{align-items:flex-start;flex-direction:column}.ticket-products-hidden small{text-align:left}.kitchen-detail-footer .detail-status-action{width:100%;justify-content:center;order:-1}}
