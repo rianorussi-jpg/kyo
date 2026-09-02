@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { RefreshCw, ChefHat, LogOut, Clock3, MapPin, Bike, Store, Check, ArrowRight, Volume2, VolumeX } from 'lucide-react'
+import { RefreshCw, ChefHat, LogOut, Clock3, MapPin, Bike, Store, Check, ArrowRight, Volume2, VolumeX, Eye, Printer, X, CreditCard, Banknote, AlertTriangle } from 'lucide-react'
 import { supabase } from './supabase'
 
 const money=n=>`$${Number(n||0).toLocaleString('es-MX',{maximumFractionDigits:2})}`
@@ -36,6 +36,24 @@ function playNewOrderBeep(ctx){
   }catch(e){
     console.error('Kitchen sound error',e)
   }
+}
+
+const paymentLabel=order=>order.payment_method==='card'?'Tarjeta':order.payment_method==='terminal'?'Terminal':'Efectivo'
+const isPaid=order=>order.payment_status==='paid'
+const chargedTotal=order=>Number(order.total||0)+Number(order.tip_amount||0)
+const escapeHtml=value=>String(value??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[c]))
+const customizationGroups=item=>Object.entries((Array.isArray(item.customizations)?item.customizations:[]).reduce((groups,c)=>{const title=c.template_name||c.group_name||c.customization_name||c.title||'Personalización';(groups[title]??=[]).push(c);return groups},{}))
+
+function printKitchenOrder(order){
+  const no=String(order.order_number).padStart(4,'0')
+  const items=(order.order_items||[]).map(i=>{
+    const customs=customizationGroups(i).map(([title,rows])=>`<div class="custom"><b>${escapeHtml(title)}</b>${rows.map(c=>`<span>${escapeHtml(c.label||c.option_name||c.name)}${Number(c.quantity||1)>1?` ×${Number(c.quantity)}`:''}</span>`).join('')}</div>`).join('')
+    return `<div class="item"><div class="line"><strong>${Number(i.quantity||0)}× ${escapeHtml(i.product_name)}</strong><strong>${money(Number(i.unit_price||0)*Number(i.quantity||0))}</strong></div><small>${money(i.unit_price)} c/u</small>${customs}${i.item_note?`<div class="note"><b>NOTA:</b> ${escapeHtml(i.item_note)}</div>`:''}</div>`
+  }).join('')
+  const popup=window.open('','_blank','width=430,height=760')
+  if(!popup){alert('Permite ventanas emergentes para imprimir el ticket.');return}
+  popup.document.write(`<!doctype html><html><head><title>KYO #${no}</title><style>@page{margin:8mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:12px}.brand{text-align:center;border-bottom:2px solid #111;padding-bottom:10px}.brand h1{margin:0;font-size:24px}.brand p{margin:3px 0}.hero{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px dashed #777}.hero strong{font-size:22px}.pill{border:1px solid #111;border-radius:999px;padding:5px 8px;font-weight:700}.item{padding:11px 0;border-bottom:1px dashed #aaa}.line{display:flex;justify-content:space-between;gap:10px;font-size:14px}.item>small{display:block;color:#555;margin-top:3px}.custom{margin:7px 0 0 18px;display:grid;gap:2px}.custom b{font-size:10px;text-transform:uppercase}.custom span{padding-left:8px;border-left:2px solid #111}.note{margin-top:7px;padding:7px;border:1px solid #111}.meta{padding:10px 0;border-bottom:1px dashed #777;display:grid;gap:4px}.totals{padding-top:10px;display:grid;gap:5px}.totals div{display:flex;justify-content:space-between}.totals .grand{font-size:18px;font-weight:800;border-top:2px solid #111;padding-top:8px}.paid{text-align:center;margin-top:10px;border:2px solid #111;padding:8px;font-weight:900}.footer{text-align:center;margin-top:12px;font-size:10px}</style></head><body><div class="brand"><h1>KYO SUSHI</h1><p>${escapeHtml(branchName(order.branch_id))}</p></div><div class="hero"><strong>PEDIDO #${no}</strong><span class="pill">${order.fulfillment_type==='pickup'?'PICKUP':'DELIVERY'}</span></div><div class="meta"><b>${escapeHtml(order.profiles?.full_name||'Cliente KYO')}</b>${order.profiles?.phone?`<span>Tel. ${escapeHtml(order.profiles.phone)}</span>`:''}<span>${new Date(order.created_at).toLocaleString('es-MX')}</span>${order.delivery_address?`<span>Dirección: ${escapeHtml(order.delivery_address)}</span>`:''}${order.delivery_reference?`<span>Referencia: ${escapeHtml(order.delivery_reference)}</span>`:''}${order.delivery_notes?`<span><b>Notas:</b> ${escapeHtml(order.delivery_notes)}</span>`:''}</div>${items}<div class="totals"><div><span>Subtotal</span><b>${money(order.subtotal)}</b></div>${Number(order.delivery_fee||0)>0?`<div><span>Envío</span><b>${money(order.delivery_fee)}</b></div>`:''}<div><span>Venta KYO</span><b>${money(order.total)}</b></div>${Number(order.tip_amount||0)>0?`<div><span>Propina</span><b>${money(order.tip_amount)}</b></div>`:''}<div class="grand"><span>TOTAL</span><b>${money(chargedTotal(order))}</b></div></div><div class="paid">${isPaid(order)?'✓ PAGADO · ':order.payment_method==='cash'?'COBRAR EN EFECTIVO · ':'COBRAR CON TERMINAL · '}${money(chargedTotal(order))}</div><div class="footer">Método: ${escapeHtml(paymentLabel(order))}</div><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script></body></html>`)
+  popup.document.close()
 }
 
 const fallbackRiders={
@@ -80,6 +98,7 @@ export function KitchenMode({auth}){
   const [loading,setLoading]=useState(true)
   const [soundReady,setSoundReady]=useState(false)
   const [riders,setRiders]=useState(fallbackRiders[branch])
+  const [detailOrder,setDetailOrder]=useState(null)
   const audioRef=useRef(null)
 
   const enableSound=async()=>{
@@ -123,22 +142,50 @@ export function KitchenMode({auth}){
   },[branch])
 
   const setStatus=async(id,status)=>{await supabase.from('orders').update({status}).eq('id',id);load()}
+  const advanceOrder=async(id,order)=>{
+    if(order.fulfillment_type==='pickup'){
+      const payment=isPaid(order)?`Este pedido YA ESTÁ PAGADO (${money(chargedTotal(order))}).`:`Este pedido se cobra por ${paymentLabel(order).toLowerCase()} (${money(chargedTotal(order))}).`
+      if(!window.confirm(`CONFIRMAR ENTREGA PICKUP\n\nPedido #${String(order.order_number).padStart(4,'0')}\n${payment}\n\n¿El cliente ya recibió físicamente su pedido?`))return
+      await setStatus(id,'delivered')
+      return
+    }
+    await setStatus(id,'on_the_way')
+  }
   const preparing=orders.filter(o=>o.status==='preparing');const ready=orders.filter(o=>o.status==='ready');const route=orders.filter(o=>o.status==='on_the_way')
-  return <main className="kitchen-shell"><header className="kitchen-head"><div><span>MODO COCINA</span><h1>{branchName(branch)}</h1><p>Los pedidos nuevos entran automáticamente a Preparando.</p></div><div className="kitchen-head-actions"><button className={`kitchen-sound-btn ${soundReady?'ready':''}`} onClick={enableSound}>{soundReady?<Volume2/>:<VolumeX/>}<span>{soundReady?'Sonido activo':'Activar sonido'}</span></button><button onClick={()=>{load();loadRiders()}}><RefreshCw className={loading?'spin':''}/></button><button onClick={()=>supabase.auth.signOut()}><LogOut/></button></div></header><section className="kitchen-board"><KitchenColumn title="Preparando" count={preparing.length} orders={preparing} actionLabel="Marcar listo" actionIcon={<Check/>} onAction={id=>setStatus(id,'ready')}/><KitchenColumn title="Listos" count={ready.length} orders={ready} actionLabel={o=>o.fulfillment_type==='pickup'?'Marcar entregado':'Salió a ruta'} actionIcon={o=>o.fulfillment_type==='pickup'?<Check/>:<Bike/>} onAction={(id,o)=>setStatus(id,o.fulfillment_type==='pickup'?'delivered':'on_the_way')}/></section>{route.length>0&&<section className="route-strip">
-    <div className="route-strip-head"><span>EN CAMINO</span><strong>{route.length} pedido{route.length!==1?'s':''}</strong></div>
-    <div className="route-orders-list">
-      {route.map(o=><div className="route-order-row" key={o.id}>
-        <div className="route-order-info">
-          <strong>Pedido #{String(o.order_number).padStart(4,'0')}</strong>
-          <small>{o.delivery_address}</small>
-        </div>
-        <div className="route-order-actions">
-          {riders.map((rider,index)=><button key={index} className={`rider-btn rider-${index+1}`} onClick={()=>sendOrderToRider(o,rider)}>Enviar a {rider?.name?.trim()||`Repartidor ${index+1}`}</button>)}
-          <button className="delivered-btn" onClick={()=>setStatus(o.id,'delivered')}>Marcar entregado <ArrowRight/></button>
-        </div>
-      </div>)}
-    </div>
-  </section>}</main>
+  return <main className="kitchen-shell">
+    <header className="kitchen-head"><div><span>MODO COCINA</span><h1>{branchName(branch)}</h1><p>Pedidos en tiempo real · abre detalles antes de entregar o imprimir.</p></div><div className="kitchen-head-actions"><button className={`kitchen-sound-btn ${soundReady?'ready':''}`} onClick={enableSound}>{soundReady?<Volume2/>:<VolumeX/>}<span>{soundReady?'Sonido activo':'Activar sonido'}</span></button><button onClick={()=>{load();loadRiders()}} title="Actualizar"><RefreshCw className={loading?'spin':''}/></button><button onClick={()=>supabase.auth.signOut()} title="Cerrar sesión"><LogOut/></button></div></header>
+    <section className="kitchen-board"><KitchenColumn title="Preparando" tone="preparing" count={preparing.length} orders={preparing} actionLabel="Marcar listo" actionIcon={<Check/>} onAction={id=>setStatus(id,'ready')} onDetails={setDetailOrder}/><KitchenColumn title="Listos para entregar" tone="ready" count={ready.length} orders={ready} actionLabel={o=>o.fulfillment_type==='pickup'?'Confirmar entrega':'Salió a ruta'} actionIcon={o=>o.fulfillment_type==='pickup'?<Check/>:<Bike/>} onAction={advanceOrder} onDetails={setDetailOrder}/></section>
+    {route.length>0&&<section className="route-strip"><div className="route-strip-head"><span>EN CAMINO</span><strong>{route.length} pedido{route.length!==1?'s':''}</strong></div><div className="route-orders-list">{route.map(o=><div className="route-order-row" key={o.id}><div className="route-order-info"><strong>Pedido #{String(o.order_number).padStart(4,'0')}</strong><small>{o.delivery_address}</small></div><div className="route-order-actions"><button className="route-detail-btn" onClick={()=>setDetailOrder(o)}><Eye/> Ver detalles</button>{riders.map((rider,index)=><button key={index} className={`rider-btn rider-${index+1}`} onClick={()=>sendOrderToRider(o,rider)}>Enviar a {rider?.name?.trim()||`Repartidor ${index+1}`}</button>)}<button className="delivered-btn" onClick={()=>setStatus(o.id,'delivered')}>Marcar entregado <ArrowRight/></button></div></div>)}</div></section>}
+    {detailOrder&&<KitchenOrderDetail order={detailOrder} onClose={()=>setDetailOrder(null)} onPrint={()=>printKitchenOrder(detailOrder)}/>}  
+  </main>
 }
-function KitchenColumn({title,count,orders,actionLabel,actionIcon,onAction}){return <section className="kitchen-column"><header><h2>{title}</h2><b>{count}</b></header><div className="kitchen-list">{orders.length===0?<div className="kitchen-empty">No hay pedidos aquí.</div>:orders.map(o=><KitchenTicket key={o.id} order={o} actionLabel={typeof actionLabel==='function'?actionLabel(o):actionLabel} actionIcon={typeof actionIcon==='function'?actionIcon(o):actionIcon} onAction={()=>onAction(o.id,o)}/>)}</div></section>}
-function KitchenTicket({order,actionLabel,actionIcon,onAction}){return <article className="kitchen-ticket"><div className="ticket-top"><div><small>PEDIDO</small><h3>#{String(order.order_number).padStart(4,'0')}</h3></div><span><Clock3/> {new Date(order.created_at).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</span></div><div className="ticket-items">{order.order_items?.map(i=><div className="kitchen-item-detail" key={i.id}><div className="kitchen-product-line"><b>{i.quantity}×</b><strong>{i.product_name}</strong></div>{i.customizations?.length>0&&<div className="kitchen-customizations">{Object.entries(i.customizations.reduce((groups,c)=>{const title=c.template_name||c.group_name||c.customization_name||c.title||'Personalización';(groups[title]??=[]).push(c);return groups},{})).map(([title,rows])=><div className="kitchen-custom-group" key={title}><strong>{title}</strong>{rows.map((c,idx)=><span key={idx}>{c.label||c.option_name||c.name}{Number(c.quantity||1)>1?` ×${c.quantity}`:''}</span>)}</div>)}</div>}{i.item_note&&<div className="kitchen-item-note"><strong>Nota del cliente</strong><p>{i.item_note}</p></div>}</div>)}</div><div className="ticket-customer"><strong>{order.profiles?.full_name||'Cliente KYO'}</strong>{order.profiles?.phone&&<span>Tel. {order.profiles.phone}</span>}</div><div className="ticket-meta"><span>{order.fulfillment_type==='delivery'?<Bike/>:<Store/>}{order.fulfillment_type==='delivery'?'Delivery':'Pickup'}</span>{order.delivery_address&&<span><MapPin/>{order.delivery_address}</span>}{order.delivery_reference&&<p><b>Referencia:</b> {order.delivery_reference}</p>}{order.delivery_notes&&<p><b>Notas del pedido:</b> {order.delivery_notes}</p>}</div><div className="ticket-foot"><div className="kitchen-payment-total"><strong>{money(Number(order.total||0)+Number(order.tip_amount||0))}</strong>{Number(order.tip_amount||0)>0&&<small>Propina: {money(order.tip_amount)}</small>}</div><button onClick={onAction}>{actionIcon}{actionLabel}</button></div></article>}
+
+function KitchenColumn({title,tone,count,orders,actionLabel,actionIcon,onAction,onDetails}){return <section className={`kitchen-column kitchen-column-${tone||''}`}><header><div><small>{tone==='preparing'?'EN PRODUCCIÓN':'SALIDA'}</small><h2>{title}</h2></div><b>{count}</b></header><div className="kitchen-list">{orders.length===0?<div className="kitchen-empty">No hay pedidos aquí.</div>:orders.map(o=><KitchenTicket key={o.id} order={o} actionLabel={typeof actionLabel==='function'?actionLabel(o):actionLabel} actionIcon={typeof actionIcon==='function'?actionIcon(o):actionIcon} onAction={()=>onAction(o.id,o)} onDetails={()=>onDetails(o)}/>)}</div></section>}
+
+function KitchenTicket({order,actionLabel,actionIcon,onAction,onDetails}){
+  const pickup=order.fulfillment_type==='pickup'
+  const paid=isPaid(order)
+  return <article className={`kitchen-ticket ${pickup?'pickup-ticket':'delivery-ticket'}`}>
+    <div className="ticket-type-banner">{pickup?<><Store/> PICKUP · RECOGE EN SUCURSAL</>:<><Bike/> DELIVERY</>}</div>
+    <div className="ticket-top"><div><small>PEDIDO</small><h3>#{String(order.order_number).padStart(4,'0')}</h3></div><span><Clock3/> {new Date(order.created_at).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</span></div>
+    <div className={`ticket-payment-alert ${paid?'paid':'collect'}`}>{paid?<CreditCard/>:<Banknote/>}<div><small>{paid?'PAGO CONFIRMADO':'PENDIENTE DE COBRO'}</small><strong>{paid?`Ya cobrado · ${money(chargedTotal(order))}`:`Cobrar ${money(chargedTotal(order))} · ${paymentLabel(order)}`}</strong></div></div>
+    <div className="ticket-items">{order.order_items?.map(i=><div className="kitchen-item-detail" key={i.id}><div className="kitchen-product-line"><b>{i.quantity}×</b><strong>{i.product_name}</strong></div>{customizationGroups(i).length>0&&<div className="kitchen-customizations">{customizationGroups(i).map(([title,rows])=><div className="kitchen-custom-group" key={title}><strong>{title}</strong>{rows.map((c,idx)=><span key={idx}>{c.label||c.option_name||c.name}{Number(c.quantity||1)>1?` ×${c.quantity}`:''}</span>)}</div>)}</div>}{i.item_note&&<div className="kitchen-item-note"><strong>Nota del cliente</strong><p>{i.item_note}</p></div>}</div>)}</div>
+    <div className="ticket-customer"><strong>{order.profiles?.full_name||'Cliente KYO'}</strong>{order.profiles?.phone&&<span>Tel. {order.profiles.phone}</span>}</div>
+    <div className="ticket-meta">{order.delivery_address&&<span><MapPin/>{order.delivery_address}</span>}{order.delivery_reference&&<p><b>Referencia:</b> {order.delivery_reference}</p>}{order.delivery_notes&&<p><b>Notas del pedido:</b> {order.delivery_notes}</p>}</div>
+    <div className="ticket-quick-actions"><button className="detail-btn" onClick={onDetails}><Eye/> Ver detalles</button><button className="print-btn" onClick={()=>printKitchenOrder(order)}><Printer/> Imprimir</button></div>
+    <div className="ticket-foot"><div className="kitchen-payment-total"><strong>{money(chargedTotal(order))}</strong><small>{paymentLabel(order)}{Number(order.tip_amount||0)>0?` · Propina ${money(order.tip_amount)}`:''}</small></div><button className={pickup?'pickup-deliver-btn':''} onClick={onAction}>{actionIcon}{actionLabel}</button></div>
+  </article>
+}
+
+function KitchenOrderDetail({order,onClose,onPrint}){
+  const pickup=order.fulfillment_type==='pickup', paid=isPaid(order)
+  return <div className="kitchen-detail-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><section className="kitchen-detail-modal">
+    <header className="kitchen-detail-head"><div><small>DETALLE COMPLETO</small><h2>Pedido #{String(order.order_number).padStart(4,'0')}</h2><p>{new Date(order.created_at).toLocaleString('es-MX')} · {branchName(order.branch_id)}</p></div><button onClick={onClose}><X/></button></header>
+    <div className={`kitchen-detail-fulfillment ${pickup?'pickup':'delivery'}`}><div>{pickup?<Store/>:<Bike/>}<span><small>TIPO DE PEDIDO</small><strong>{pickup?'PICKUP · RECOGE EN SUCURSAL':'DELIVERY · ENVÍO A DOMICILIO'}</strong></span></div><div className={paid?'paid':'collect'}>{paid?<CreditCard/>:<AlertTriangle/>}<span><small>{paid?'PAGO CONFIRMADO':'COBRO PENDIENTE'}</small><strong>{paid?`Ya se cobró ${money(chargedTotal(order))}`:`Cobrar ${money(chargedTotal(order))} · ${paymentLabel(order)}`}</strong></span></div></div>
+    <div className="kitchen-detail-customer"><div><small>CLIENTE</small><strong>{order.profiles?.full_name||'Cliente KYO'}</strong>{order.profiles?.phone&&<span>{order.profiles.phone}</span>}</div><div><small>MÉTODO DE PAGO</small><strong>{paymentLabel(order)}</strong><span>{paid?'Pago confirmado':'Pendiente al entregar'}</span></div></div>
+    {(order.delivery_address||order.delivery_reference||order.delivery_notes)&&<div className="kitchen-detail-notes">{order.delivery_address&&<p><MapPin/><span><small>DIRECCIÓN</small><strong>{order.delivery_address}</strong></span></p>}{order.delivery_reference&&<p><span><small>REFERENCIA</small><strong>{order.delivery_reference}</strong></span></p>}{order.delivery_notes&&<p className="important"><span><small>NOTAS DEL PEDIDO</small><strong>{order.delivery_notes}</strong></span></p>}</div>}
+    <div className="kitchen-detail-items"><div className="kitchen-detail-section-title"><span>PRODUCTOS</span><b>{order.order_items?.reduce((a,i)=>a+Number(i.quantity||0),0)||0} unidades</b></div>{order.order_items?.map(i=><article key={i.id}><div className="detail-item-main"><span><b>{i.quantity}×</b><strong>{i.product_name}</strong></span><div><small>{money(i.unit_price)} c/u</small><strong>{money(Number(i.unit_price||0)*Number(i.quantity||0))}</strong></div></div>{customizationGroups(i).length>0&&<div className="detail-customs">{customizationGroups(i).map(([title,rows])=><p key={title}><b>{title}</b><span>{rows.map(c=>(c.label||c.option_name||c.name)+(Number(c.quantity||1)>1?` ×${c.quantity}`:'')).join(', ')}</span></p>)}</div>}{i.item_note&&<div className="detail-item-note"><b>NOTA DEL CLIENTE</b><span>{i.item_note}</span></div>}</article>)}</div>
+    <div className="kitchen-detail-totals"><div><span>Subtotal</span><strong>{money(order.subtotal)}</strong></div>{Number(order.delivery_fee||0)>0&&<div><span>Envío</span><strong>{money(order.delivery_fee)}</strong></div>}<div><span>Venta KYO</span><strong>{money(order.total)}</strong></div>{Number(order.tip_amount||0)>0&&<div><span>Propina</span><strong>{money(order.tip_amount)}</strong></div>}<div className="grand"><span>{paid?'TOTAL COBRADO':'TOTAL A COBRAR'}</span><strong>{money(chargedTotal(order))}</strong></div></div>
+    <footer className="kitchen-detail-footer"><button className="secondary" onClick={onClose}>Cerrar</button><button className="primary-print" onClick={onPrint}><Printer/> Imprimir ticket</button></footer>
+  </section></div>
+}
