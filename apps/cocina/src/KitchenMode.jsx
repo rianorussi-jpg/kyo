@@ -38,7 +38,13 @@ function playNewOrderBeep(ctx){
   }
 }
 
-const paymentLabel=order=>order.payment_method==='card'?'Tarjeta':order.payment_method==='terminal'?'Terminal':'Efectivo'
+const normalizedPaymentMethod=order=>{
+  const method=String(order?.payment_method||'').trim().toLowerCase()
+  if(['terminal','pos','card_terminal','terminal_card'].includes(method))return 'terminal'
+  if(['card','stripe','online_card','apple_pay'].includes(method))return 'card'
+  return 'cash'
+}
+const paymentLabel=order=>normalizedPaymentMethod(order)==='card'?'Tarjeta':normalizedPaymentMethod(order)==='terminal'?'Terminal':'Efectivo'
 const isPaid=order=>order.payment_status==='paid'
 const chargedTotal=order=>Number(order.total||0)+Number(order.tip_amount||0)
 const escapeHtml=value=>String(value??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[c]))
@@ -48,17 +54,86 @@ const customizationPrice=c=>Number(c.price??c.option_price??c.extra_price??0)
 const customizationLineTotal=c=>customizationPrice(c)*Math.max(1,Number(c.quantity||1))
 const itemExtrasPerUnit=item=>(Array.isArray(item.customizations)?item.customizations:[]).reduce((sum,c)=>sum+customizationLineTotal(c),0)
 const itemBasePrice=item=>Number(item._base_price??Math.max(0,Number(item.unit_price||0)-itemExtrasPerUnit(item)))
+const thermalDate=value=>new Date(value).toLocaleString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'})
 
-function printKitchenOrder(order){
+const thermalStyles=`
+  @page{size:80mm auto;margin:3mm}
+  html,body{width:74mm;margin:0;padding:0;background:#fff;color:#000}
+  *{box-sizing:border-box}
+  body{font-family:"Courier New",Courier,monospace;font-size:11px;line-height:1.28;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .receipt{width:74mm;max-width:74mm;margin:0 auto;padding:0}
+  .center{text-align:center}
+  .title{font-size:15px;font-weight:900;letter-spacing:.04em}
+  .subtitle{font-size:12px;font-weight:800;margin-top:2px}
+  .rule{border-top:1px dashed #000;margin:6px 0}
+  .rule.double{border-top:2px solid #000}
+  .meta{display:grid;gap:2px}
+  .meta div,.row{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+  .meta b,.row b{font-weight:900}
+  .wrap{white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+  .item{padding:5px 0}
+  .item-head{font-size:12px;font-weight:900;display:flex;gap:5px;align-items:flex-start}
+  .qty{min-width:20px;flex:0 0 20px}
+  .item-name{flex:1;white-space:normal;overflow-wrap:anywhere}
+  .group{margin:3px 0 0 20px}
+  .group-title{font-size:10px;font-weight:900;text-transform:uppercase}
+  .option{display:flex;justify-content:space-between;gap:6px;padding-left:7px;white-space:normal}
+  .option span:first-child{flex:1;overflow-wrap:anywhere}
+  .note{margin:4px 0 0 20px;border:1px solid #000;padding:4px;font-weight:800;white-space:normal;overflow-wrap:anywhere}
+  .price-detail{margin:3px 0 0 20px;display:grid;gap:1px;font-size:10px}
+  .price-detail .row{font-size:10px}
+  .total-block{display:grid;gap:3px;margin-top:5px}
+  .grand{font-size:15px;font-weight:900;border-top:2px solid #000;padding-top:5px;margin-top:3px}
+  .payment{border:2px solid #000;padding:6px;margin-top:7px;text-align:center;font-size:12px;font-weight:900}
+  .footer{margin-top:8px;text-align:center;font-size:10px}
+  .spacer{height:8px}
+  @media print{html,body,.receipt{width:74mm!important;max-width:74mm!important}.receipt{page-break-after:avoid}}
+`
+
+function openThermalPrint(order,bodyHtml,title){
   const no=String(order.order_number).padStart(4,'0')
-  const items=(order.order_items||[]).map(i=>{
-    const customs=customizationGroups(i).map(([title,rows])=>`<div class="custom"><b>${escapeHtml(title)}</b>${rows.map(c=>`<span>${escapeHtml(customizationLabel(c))}${Number(c.quantity||1)>1?` ×${Number(c.quantity)}`:''} <em>+${money(customizationLineTotal(c))}</em></span>`).join('')}</div>`).join('')
-    return `<div class="item"><div class="line"><strong>${Number(i.quantity||0)}× ${escapeHtml(i.product_name)}</strong><strong>${money(Number(i.unit_price||0)*Number(i.quantity||0))}</strong></div><small>Base ${money(itemBasePrice(i))} c/u${itemExtrasPerUnit(i)>0?` · Personalizaciones +${money(itemExtrasPerUnit(i))} c/u`:''} · Final ${money(i.unit_price)} c/u</small>${customs}${i.item_note?`<div class="note"><b>NOTA:</b> ${escapeHtml(i.item_note)}</div>`:''}</div>`
-  }).join('')
-  const popup=window.open('','_blank','width=430,height=760')
+  const popup=window.open('','_blank','width=420,height=800')
   if(!popup){alert('Permite ventanas emergentes para imprimir el ticket.');return}
-  popup.document.write(`<!doctype html><html><head><title>KYO #${no}</title><style>@page{margin:8mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;margin:0;font-size:12px}.brand{text-align:center;border-bottom:2px solid #111;padding-bottom:10px}.brand h1{margin:0;font-size:24px}.brand p{margin:3px 0}.hero{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px dashed #777}.hero strong{font-size:22px}.pill{border:1px solid #111;border-radius:999px;padding:5px 8px;font-weight:700}.item{padding:11px 0;border-bottom:1px dashed #aaa}.line{display:flex;justify-content:space-between;gap:10px;font-size:14px}.item>small{display:block;color:#555;margin-top:3px}.custom{margin:7px 0 0 18px;display:grid;gap:2px}.custom b{font-size:10px;text-transform:uppercase}.custom span{padding-left:8px;border-left:2px solid #111;display:flex;justify-content:space-between;gap:10px}.custom em{font-style:normal;font-weight:700}.note{margin-top:7px;padding:7px;border:1px solid #111}.meta{padding:10px 0;border-bottom:1px dashed #777;display:grid;gap:4px}.totals{padding-top:10px;display:grid;gap:5px}.totals div{display:flex;justify-content:space-between}.totals .grand{font-size:18px;font-weight:800;border-top:2px solid #111;padding-top:8px}.paid{text-align:center;margin-top:10px;border:2px solid #111;padding:8px;font-weight:900}.footer{text-align:center;margin-top:12px;font-size:10px}</style></head><body><div class="brand"><h1>KYO SUSHI</h1><p>${escapeHtml(branchName(order.branch_id))}</p></div><div class="hero"><strong>PEDIDO #${no}</strong><span class="pill">${order.fulfillment_type==='pickup'?'PICKUP':'DELIVERY'}</span></div><div class="meta"><b>${escapeHtml(order.profiles?.full_name||'Cliente KYO')}</b>${order.profiles?.phone?`<span>Tel. ${escapeHtml(order.profiles.phone)}</span>`:''}<span>${new Date(order.created_at).toLocaleString('es-MX')}</span>${order.delivery_address?`<span>Dirección: ${escapeHtml(order.delivery_address)}</span>`:''}${order.delivery_reference?`<span>Referencia: ${escapeHtml(order.delivery_reference)}</span>`:''}${order.delivery_notes?`<span><b>Notas:</b> ${escapeHtml(order.delivery_notes)}</span>`:''}</div>${items}<div class="totals"><div><span>Subtotal</span><b>${money(order.subtotal)}</b></div>${Number(order.delivery_fee||0)>0?`<div><span>Envío</span><b>${money(order.delivery_fee)}</b></div>`:''}<div><span>Venta KYO</span><b>${money(order.total)}</b></div>${Number(order.tip_amount||0)>0?`<div><span>Propina</span><b>${money(order.tip_amount)}</b></div>`:''}<div class="grand"><span>TOTAL</span><b>${money(chargedTotal(order))}</b></div></div><div class="paid">${isPaid(order)?'✓ PAGADO · ':order.payment_method==='cash'?'COBRAR EN EFECTIVO · ':'COBRAR CON TERMINAL · '}${money(chargedTotal(order))}</div><div class="footer">Método: ${escapeHtml(paymentLabel(order))}</div><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script></body></html>`)
+  popup.document.open()
+  popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} #${no}</title><style>${thermalStyles}</style></head><body><main class="receipt">${bodyHtml}</main><script>window.onload=()=>setTimeout(()=>{window.print();window.onafterprint=()=>window.close()},250)<\/script></body></html>`)
   popup.document.close()
+}
+
+function ticketHeader(order,kind){
+  const no=String(order.order_number).padStart(4,'0')
+  const pickup=order.fulfillment_type==='pickup'
+  const customer=order.profiles?.full_name||'Cliente KYO'
+  return `<div class="center"><div class="title">KYO SUSHI</div><div class="subtitle">${escapeHtml(branchName(order.branch_id))}</div><div class="subtitle">${kind}</div></div><div class="rule double"></div><div class="meta"><div><b>PEDIDO</b><b>#${no}</b></div><div><span>TIPO</span><b>${pickup?'PICKUP':'DELIVERY'}</b></div><div><span>FECHA</span><span>${escapeHtml(thermalDate(order.created_at))}</span></div><div><span>CLIENTE</span><b class="wrap">${escapeHtml(customer)}</b></div>${order.profiles?.phone?`<div><span>TEL</span><span>${escapeHtml(order.profiles.phone)}</span></div>`:''}<div><span>PAGO</span><b>${escapeHtml(paymentLabel(order))}</b></div></div>${order.delivery_address?`<div class="rule"></div><div class="wrap"><b>DIRECCIÓN:</b> ${escapeHtml(order.delivery_address)}</div>`:''}${order.delivery_reference?`<div class="wrap"><b>REFERENCIA:</b> ${escapeHtml(order.delivery_reference)}</div>`:''}${order.delivery_notes?`<div class="wrap"><b>NOTAS PEDIDO:</b> ${escapeHtml(order.delivery_notes)}</div>`:''}<div class="rule double"></div>`
+}
+
+function kitchenItemsHtml(order){
+  return (order.order_items||[]).map(i=>{
+    const customs=customizationGroups(i).map(([title,rows])=>`<div class="group"><div class="group-title">${escapeHtml(title)}</div>${rows.map(c=>`<div class="option"><span>${escapeHtml(customizationLabel(c))}${Number(c.quantity||1)>1?` x${Number(c.quantity)}`:''}</span></div>`).join('')}</div>`).join('')
+    return `<section class="item"><div class="item-head"><span class="qty">${Number(i.quantity||0)}x</span><span class="item-name">${escapeHtml(i.product_name)}</span></div>${customs}${i.item_note?`<div class="note">NOTA: ${escapeHtml(i.item_note)}</div>`:''}</section><div class="rule"></div>`
+  }).join('')
+}
+
+function saleItemsHtml(order){
+  return (order.order_items||[]).map(i=>{
+    const qty=Math.max(1,Number(i.quantity||1))
+    const customs=customizationGroups(i).map(([title,rows])=>`<div class="group"><div class="group-title">${escapeHtml(title)}</div>${rows.map(c=>`<div class="option"><span>${escapeHtml(customizationLabel(c))}${Number(c.quantity||1)>1?` x${Number(c.quantity)}`:''}</span><b>${customizationPrice(c)>0?`+${money(customizationLineTotal(c))}`:'$0'}</b></div>`).join('')}</div>`).join('')
+    return `<section class="item"><div class="item-head"><span class="qty">${qty}x</span><span class="item-name">${escapeHtml(i.product_name)}</span><b>${money(Number(i.unit_price||0)*qty)}</b></div><div class="price-detail"><div class="row"><span>Base c/u</span><b>${money(itemBasePrice(i))}</b></div>${itemExtrasPerUnit(i)>0?`<div class="row"><span>Personalizaciones c/u</span><b>+${money(itemExtrasPerUnit(i))}</b></div>`:''}<div class="row"><span>Final c/u</span><b>${money(i.unit_price)}</b></div></div>${customs}${i.item_note?`<div class="note">NOTA: ${escapeHtml(i.item_note)}</div>`:''}</section><div class="rule"></div>`
+  }).join('')
+}
+
+function printKitchenTicket(order){
+  const method=paymentLabel(order)
+  const body=`${ticketHeader(order,'TICKET COCINA')}${kitchenItemsHtml(order)}<div class="payment">MÉTODO DE PAGO: ${escapeHtml(method)}</div><div class="footer">*** COCINA ***</div><div class="spacer"></div>`
+  openThermalPrint(order,body,'Cocina')
+}
+
+function printSaleTicket(order){
+  const method=paymentLabel(order)
+  const methodKey=normalizedPaymentMethod(order)
+  const paymentStatus=isPaid(order)?`PAGADO · ${method}`:methodKey==='terminal'?`COBRAR CON TERMINAL`:methodKey==='cash'?`COBRAR EN EFECTIVO`:`PAGO CON TARJETA PENDIENTE`
+  const totals=`<div class="total-block"><div class="row"><span>Subtotal</span><b>${money(order.subtotal)}</b></div>${Number(order.delivery_fee||0)>0?`<div class="row"><span>Envío</span><b>${money(order.delivery_fee)}</b></div>`:''}<div class="row"><span>Venta KYO</span><b>${money(order.total)}</b></div>${Number(order.tip_amount||0)>0?`<div class="row"><span>Propina</span><b>${money(order.tip_amount)}</b></div>`:''}<div class="row grand"><span>TOTAL</span><b>${money(chargedTotal(order))}</b></div></div>`
+  const body=`${ticketHeader(order,'TICKET DE VENTA')}${saleItemsHtml(order)}${totals}<div class="payment">${escapeHtml(paymentStatus)}<br>TOTAL ${money(chargedTotal(order))}</div><div class="footer">Método: ${escapeHtml(method)}<br>Gracias por tu preferencia<br>Este ticket no es comprobante fiscal</div><div class="spacer"></div>`
+  openThermalPrint(order,body,'Venta')
 }
 
 const fallbackRiders={
@@ -175,7 +250,7 @@ export function KitchenMode({auth}){
     <header className="kitchen-head"><div><span>MODO COCINA</span><h1>{branchName(branch)}</h1><p>Pedidos en tiempo real · abre detalles antes de entregar o imprimir.</p></div><div className="kitchen-head-actions"><button className={`kitchen-sound-btn ${soundReady?'ready':''}`} onClick={enableSound}>{soundReady?<Volume2/>:<VolumeX/>}<span>{soundReady?'Sonido activo':'Activar sonido'}</span></button><button onClick={()=>{load();loadRiders()}} title="Actualizar"><RefreshCw className={loading?'spin':''}/></button><button onClick={()=>supabase.auth.signOut()} title="Cerrar sesión"><LogOut/></button></div></header>
     <section className="kitchen-board"><KitchenColumn title="Preparando" tone="preparing" count={preparing.length} orders={preparing} actionLabel="Marcar listo" actionIcon={<Check/>} onAction={id=>setStatus(id,'ready')} onDetails={setDetailOrder}/><KitchenColumn title="Listos para entregar" tone="ready" count={ready.length} orders={ready} actionLabel={o=>o.fulfillment_type==='pickup'?'Confirmar entrega':'Salió a ruta'} actionIcon={o=>o.fulfillment_type==='pickup'?<Check/>:<Bike/>} onAction={advanceOrder} onDetails={setDetailOrder}/></section>
     {route.length>0&&<section className="route-strip"><div className="route-strip-head"><span>EN CAMINO</span><strong>{route.length} pedido{route.length!==1?'s':''}</strong></div><div className="route-orders-list">{route.map(o=><div className="route-order-row" key={o.id}><div className="route-order-info"><strong>Pedido #{String(o.order_number).padStart(4,'0')}</strong><small>{o.delivery_address}</small></div><div className="route-order-actions"><button className="route-detail-btn" onClick={()=>setDetailOrder(o)}><Eye/> Ver detalles</button>{riders.map((rider,index)=><button key={index} className={`rider-btn rider-${index+1}`} onClick={()=>sendOrderToRider(o,rider)}>Enviar a {rider?.name?.trim()||`Repartidor ${index+1}`}</button>)}<button className="delivered-btn" onClick={()=>setStatus(o.id,'delivered')}>Marcar entregado <ArrowRight/></button></div></div>)}</div></section>}
-    {detailOrder&&<KitchenOrderDetail order={detailOrder} onClose={()=>setDetailOrder(null)} onPrint={()=>printKitchenOrder(detailOrder)} onStatusAction={async order=>{if(order.status==='preparing'){await setStatus(order.id,'ready');setDetailOrder(null);return}if(order.status==='ready'){await advanceOrder(order.id,order);setDetailOrder(null)}}}/>}  
+    {detailOrder&&<KitchenOrderDetail order={detailOrder} onClose={()=>setDetailOrder(null)} onPrintKitchen={()=>printKitchenTicket(detailOrder)} onPrintSale={()=>printSaleTicket(detailOrder)} onStatusAction={async order=>{if(order.status==='preparing'){await setStatus(order.id,'ready');setDetailOrder(null);return}if(order.status==='ready'){await advanceOrder(order.id,order);setDetailOrder(null)}}}/>}
   </main>
 }
 
@@ -192,12 +267,12 @@ function KitchenTicket({order,actionLabel,actionIcon,onAction,onDetails}){
     <button className="ticket-products-hidden" onClick={onDetails}><span><Eye/><b>{units} producto{units!==1?'s':''}</b></span><small>Contenido oculto · abre Ver detalles para preparar</small></button>
     <div className="ticket-customer"><strong>{order.profiles?.full_name||'Cliente KYO'}</strong>{order.profiles?.phone&&<span>Tel. {order.profiles.phone}</span>}</div>
     <div className="ticket-meta">{order.delivery_address&&<span><MapPin/>{order.delivery_address}</span>}{order.delivery_reference&&<p><b>Referencia:</b> {order.delivery_reference}</p>}</div>
-    <div className="ticket-quick-actions"><button className="detail-btn" onClick={onDetails}><Eye/> Ver detalles</button><button className="print-btn" onClick={()=>printKitchenOrder(order)}><Printer/> Imprimir</button></div>
+    <div className="ticket-quick-actions"><button className="detail-btn" onClick={onDetails}><Eye/> Ver detalles</button><button className="print-btn kitchen-print-btn" onClick={()=>printKitchenTicket(order)}><Printer/> Ticket cocina</button><button className="print-btn sale-print-btn" onClick={()=>printSaleTicket(order)}><Printer/> Ticket venta</button></div>
     <div className="ticket-foot"><div className="kitchen-payment-total"><strong>{money(chargedTotal(order))}</strong><small>{paymentLabel(order)}{Number(order.tip_amount||0)>0?` · Propina ${money(order.tip_amount)}`:''}</small></div><button className={pickup?'pickup-deliver-btn':''} onClick={onAction}>{actionIcon}{actionLabel}</button></div>
   </article>
 }
 
-function KitchenOrderDetail({order,onClose,onPrint,onStatusAction}){
+function KitchenOrderDetail({order,onClose,onPrintKitchen,onPrintSale,onStatusAction}){
   const pickup=order.fulfillment_type==='pickup', paid=isPaid(order)
   const actionLabel=order.status==='preparing'?'Marcar pedido listo':order.status==='ready'?(pickup?'Confirmar entrega pickup':'Marcar salida a ruta'):null
   return <div className="kitchen-detail-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><section className="kitchen-detail-modal">
@@ -207,6 +282,6 @@ function KitchenOrderDetail({order,onClose,onPrint,onStatusAction}){
     {(order.delivery_address||order.delivery_reference||order.delivery_notes)&&<div className="kitchen-detail-notes">{order.delivery_address&&<p><MapPin/><span><small>DIRECCIÓN</small><strong>{order.delivery_address}</strong></span></p>}{order.delivery_reference&&<p><span><small>REFERENCIA</small><strong>{order.delivery_reference}</strong></span></p>}{order.delivery_notes&&<p className="important"><span><small>NOTAS DEL PEDIDO</small><strong>{order.delivery_notes}</strong></span></p>}</div>}
     <div className="kitchen-detail-items"><div className="kitchen-detail-section-title"><span>PRODUCTOS</span><b>{order.order_items?.reduce((a,i)=>a+Number(i.quantity||0),0)||0} unidades</b></div>{order.order_items?.map(i=><article key={i.id}><div className="detail-item-main"><span><b>{i.quantity}×</b><strong>{i.product_name}</strong></span><div><small>Precio final c/u</small><strong>{money(i.unit_price)}</strong><em>{money(Number(i.unit_price||0)*Number(i.quantity||0))} total</em></div></div><div className="detail-price-breakdown"><div><span>Producto base</span><strong>{money(itemBasePrice(i))}</strong></div>{itemExtrasPerUnit(i)>0&&<div><span>Personalizaciones</span><strong>+{money(itemExtrasPerUnit(i))}</strong></div>}<div className="final"><span>Precio final por unidad</span><strong>{money(i.unit_price)}</strong></div></div>{customizationGroups(i).length>0&&<div className="detail-customs">{customizationGroups(i).map(([title,rows])=><section key={title}><b>{title}</b>{rows.map((c,idx)=><p key={idx}><span>{customizationLabel(c)}{Number(c.quantity||1)>1?` ×${c.quantity}`:''}</span><strong>{customizationPrice(c)>0?`+${money(customizationLineTotal(c))}`:'Sin costo'}</strong></p>)}</section>)}</div>}{i.item_note&&<div className="detail-item-note"><b>NOTA DEL CLIENTE</b><span>{i.item_note}</span></div>}</article>)}</div>
     <div className="kitchen-detail-totals"><div><span>Subtotal</span><strong>{money(order.subtotal)}</strong></div>{Number(order.delivery_fee||0)>0&&<div><span>Envío</span><strong>{money(order.delivery_fee)}</strong></div>}<div><span>Venta KYO</span><strong>{money(order.total)}</strong></div>{Number(order.tip_amount||0)>0&&<div><span>Propina</span><strong>{money(order.tip_amount)}</strong></div>}<div className="grand"><span>{paid?'TOTAL COBRADO':'TOTAL A COBRAR'}</span><strong>{money(chargedTotal(order))}</strong></div></div>
-    <footer className="kitchen-detail-footer"><button className="secondary" onClick={onClose}>Cerrar</button><button className="primary-print" onClick={onPrint}><Printer/> Imprimir ticket</button>{actionLabel&&<button className={`detail-status-action ${order.status==='preparing'?'ready-action':pickup?'pickup-action':'route-action'}`} onClick={()=>onStatusAction(order)}>{order.status==='preparing'?<Check/>:pickup?<Check/>:<Bike/>}{actionLabel}</button>}</footer>
+    <footer className="kitchen-detail-footer"><button className="secondary" onClick={onClose}>Cerrar</button><button className="primary-print kitchen" onClick={onPrintKitchen}><Printer/> Imprimir ticket cocina</button><button className="primary-print sale" onClick={onPrintSale}><Printer/> Imprimir ticket venta</button>{actionLabel&&<button className={`detail-status-action ${order.status==='preparing'?'ready-action':pickup?'pickup-action':'route-action'}`} onClick={()=>onStatusAction(order)}>{order.status==='preparing'?<Check/>:pickup?<Check/>:<Bike/>}{actionLabel}</button>}</footer>
   </section></div>
 }

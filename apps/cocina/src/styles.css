@@ -3421,3 +3421,51 @@ main{
 .detail-customs{gap:9px!important}.detail-customs>section{display:grid;gap:5px}.detail-customs>section>b{font-size:9px;text-transform:uppercase;color:#666}.detail-customs>section>p{display:flex!important;justify-content:space-between;align-items:center;gap:12px;margin:0!important;padding:5px 0;border-top:1px solid #e5e2dc}.detail-customs>section>p:first-of-type{border-top:0}.detail-customs>section>p span{font-size:11px;font-weight:750}.detail-customs>section>p strong{font-size:11px;color:#c9560a;white-space:nowrap}
 .kitchen-detail-footer{flex-wrap:wrap}.kitchen-detail-footer .detail-status-action{min-height:44px;border:1px solid transparent;border-radius:11px;padding:0 17px;display:flex;align-items:center;gap:7px;color:#fff;font-weight:900;cursor:pointer}.detail-status-action.ready-action{background:#1f7547}.detail-status-action.pickup-action{background:#16643d}.detail-status-action.route-action{background:#174c80}.detail-status-action svg{width:17px}
 @media(max-width:620px){.ticket-products-hidden{align-items:flex-start;flex-direction:column}.ticket-products-hidden small{text-align:left}.kitchen-detail-footer .detail-status-action{width:100%;justify-content:center;order:-1}}
+
+/* ===== v28.2 Cocina: impresión separada cocina / venta ===== */
+.ticket-quick-actions{
+  grid-template-columns:1fr 1fr 1fr!important;
+}
+.ticket-quick-actions .kitchen-print-btn{
+  background:#fff7e8!important;
+  border-color:#d89b4c!important;
+  color:#5f3a00!important;
+}
+.ticket-quick-actions .sale-print-btn{
+  background:#eef5ff!important;
+  border-color:#93b5df!important;
+  color:#123f73!important;
+}
+.kitchen-detail-footer .primary-print.kitchen{
+  background:#6b4300!important;
+  border-color:#6b4300!important;
+}
+.kitchen-detail-footer .primary-print.sale{
+  background:#174c80!important;
+  border-color:#174c80!important;
+}
+@media(max-width:760px){
+  .ticket-quick-actions{
+    grid-template-columns:1fr 1fr!important;
+  }
+  .ticket-quick-actions .detail-btn{
+    grid-column:1/-1;
+  }
+  .kitchen-detail-footer .primary-print.kitchen,
+  .kitchen-detail-footer .primary-print.sale{
+    flex:1 1 calc(50% - 6px);
+    justify-content:center;
+  }
+}
+@media(max-width:480px){
+  .ticket-quick-actions{
+    grid-template-columns:1fr!important;
+  }
+  .ticket-quick-actions .detail-btn{
+    grid-column:auto;
+  }
+  .kitchen-detail-footer .primary-print.kitchen,
+  .kitchen-detail-footer .primary-print.sale{
+    flex:1 1 100%;
+  }
+}
