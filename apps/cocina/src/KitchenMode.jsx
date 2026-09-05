@@ -56,84 +56,177 @@ const itemExtrasPerUnit=item=>(Array.isArray(item.customizations)?item.customiza
 const itemBasePrice=item=>Number(item._base_price??Math.max(0,Number(item.unit_price||0)-itemExtrasPerUnit(item)))
 const thermalDate=value=>new Date(value).toLocaleString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'})
 
+const RECEIPT_COLS=42
+
+const thermalPlain=value=>String(value??'')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g,'')
+  .replace(/[“”]/g,'"')
+  .replace(/[‘’]/g,"'")
+  .replace(/·/g,'-')
+  .replace(/…/g,'...')
+  .replace(/[^\x20-\x7E\n]/g,'')
+
+const thermalWrap=(value,width=RECEIPT_COLS)=>{
+  const text=thermalPlain(value).replace(/\s+/g,' ').trim()
+  if(!text)return []
+  const words=text.split(' ')
+  const lines=[]
+  let line=''
+  for(const word of words){
+    if(word.length>width){
+      if(line){lines.push(line);line=''}
+      for(let i=0;i<word.length;i+=width)lines.push(word.slice(i,i+width))
+      continue
+    }
+    if(!line)line=word
+    else if(line.length+1+word.length<=width)line+=` ${word}`
+    else{lines.push(line);line=word}
+  }
+  if(line)lines.push(line)
+  return lines
+}
+
+const thermalCenter=value=>{
+  const t=thermalPlain(value).trim().slice(0,RECEIPT_COLS)
+  const left=Math.max(0,Math.floor((RECEIPT_COLS-t.length)/2))
+  return `${' '.repeat(left)}${t}`
+}
+
+const thermalRule=(char='-')=>char.repeat(RECEIPT_COLS)
+
+const thermalPair=(left,right)=>{
+  const l=thermalPlain(left).trim()
+  const r=thermalPlain(right).trim()
+  if(!r)return thermalWrap(l)
+  if(l.length+r.length+1<=RECEIPT_COLS)return [`${l}${' '.repeat(RECEIPT_COLS-l.length-r.length)}${r}`]
+  return [...thermalWrap(l,RECEIPT_COLS),...thermalWrap(r,RECEIPT_COLS).map(x=>x.padStart(RECEIPT_COLS))]
+}
+
+const thermalMoney=value=>money(Number(value||0))
+
+function ticketHeaderLines(order,kind){
+  const no=String(order.order_number).padStart(4,'0')
+  const pickup=order.fulfillment_type==='pickup'
+  const customer=order.profiles?.full_name||'Cliente KYO'
+  const lines=[
+    thermalCenter('KYO SUSHI'),
+    thermalCenter(branchName(order.branch_id)),
+    thermalCenter(kind),
+    thermalRule('='),
+    ...thermalPair('PEDIDO',`#${no}`),
+    ...thermalPair('TIPO',pickup?'PICKUP':'DELIVERY'),
+    'FECHA',
+    ...thermalWrap(thermalDate(order.created_at)),
+    'CLIENTE',
+    ...thermalWrap(customer)
+  ]
+  if(order.profiles?.phone){lines.push('TEL',...thermalWrap(order.profiles.phone))}
+  lines.push(...thermalPair('PAGO',paymentLabel(order)))
+  if(order.delivery_address){lines.push(thermalRule('-'),'DIRECCION:',...thermalWrap(order.delivery_address))}
+  if(order.delivery_reference)lines.push('REFERENCIA:',...thermalWrap(order.delivery_reference))
+  if(order.delivery_notes)lines.push('NOTAS PEDIDO:',...thermalWrap(order.delivery_notes))
+  lines.push(thermalRule('='))
+  return lines
+}
+
+function kitchenItemLines(order){
+  const lines=[]
+  for(const i of (order.order_items||[])){
+    const qty=Math.max(1,Number(i.quantity||1))
+    lines.push(...thermalWrap(`${qty}x ${i.product_name}`))
+    for(const [title,rows] of customizationGroups(i)){
+      lines.push(...thermalWrap(`  ${String(title).toUpperCase()}`))
+      for(const c of rows){
+        const q=Math.max(1,Number(c.quantity||1))
+        lines.push(...thermalWrap(`    - ${customizationLabel(c)}${q>1?` x${q}`:''}`))
+      }
+    }
+    if(i.item_note)lines.push(...thermalWrap(`  NOTA: ${i.item_note}`))
+    lines.push(thermalRule('-'))
+  }
+  return lines
+}
+
+function saleItemLines(order){
+  const lines=[]
+  for(const i of (order.order_items||[])){
+    const qty=Math.max(1,Number(i.quantity||1))
+    lines.push(...thermalWrap(`${qty}x ${i.product_name}`))
+    lines.push(...thermalPair('  Base c/u',thermalMoney(itemBasePrice(i))))
+    for(const [title,rows] of customizationGroups(i)){
+      lines.push(...thermalWrap(`  ${String(title).toUpperCase()}`))
+      for(const c of rows){
+        const q=Math.max(1,Number(c.quantity||1))
+        const price=customizationLineTotal(c)
+        lines.push(...thermalPair(`    ${customizationLabel(c)}${q>1?` x${q}`:''}`,price>0?`+${thermalMoney(price)}`:'$0'))
+      }
+    }
+    if(itemExtrasPerUnit(i)>0)lines.push(...thermalPair('  Personaliz. c/u',`+${thermalMoney(itemExtrasPerUnit(i))}`))
+    lines.push(...thermalPair('  Final c/u',thermalMoney(i.unit_price)))
+    lines.push(...thermalPair('  Importe',thermalMoney(Number(i.unit_price||0)*qty)))
+    if(i.item_note)lines.push(...thermalWrap(`  NOTA: ${i.item_note}`))
+    lines.push(thermalRule('-'))
+  }
+  return lines
+}
+
 const thermalStyles=`
-  @page{size:80mm auto;margin:3mm}
-  html,body{width:74mm;margin:0;padding:0;background:#fff;color:#000}
-  *{box-sizing:border-box}
-  body{font-family:"Courier New",Courier,monospace;font-size:11px;line-height:1.28;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .receipt{width:74mm;max-width:74mm;margin:0 auto;padding:0}
-  .center{text-align:center}
-  .title{font-size:15px;font-weight:900;letter-spacing:.04em}
-  .subtitle{font-size:12px;font-weight:800;margin-top:2px}
-  .rule{border-top:1px dashed #000;margin:6px 0}
-  .rule.double{border-top:2px solid #000}
-  .meta{display:grid;gap:2px}
-  .meta div,.row{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
-  .meta b,.row b{font-weight:900}
-  .wrap{white-space:normal;overflow-wrap:anywhere;word-break:break-word}
-  .item{padding:5px 0}
-  .item-head{font-size:12px;font-weight:900;display:flex;gap:5px;align-items:flex-start}
-  .qty{min-width:20px;flex:0 0 20px}
-  .item-name{flex:1;white-space:normal;overflow-wrap:anywhere}
-  .group{margin:3px 0 0 20px}
-  .group-title{font-size:10px;font-weight:900;text-transform:uppercase}
-  .option{display:flex;justify-content:space-between;gap:6px;padding-left:7px;white-space:normal}
-  .option span:first-child{flex:1;overflow-wrap:anywhere}
-  .note{margin:4px 0 0 20px;border:1px solid #000;padding:4px;font-weight:800;white-space:normal;overflow-wrap:anywhere}
-  .price-detail{margin:3px 0 0 20px;display:grid;gap:1px;font-size:10px}
-  .price-detail .row{font-size:10px}
-  .total-block{display:grid;gap:3px;margin-top:5px}
-  .grand{font-size:15px;font-weight:900;border-top:2px solid #000;padding-top:5px;margin-top:3px}
-  .payment{border:2px solid #000;padding:6px;margin-top:7px;text-align:center;font-size:12px;font-weight:900}
-  .footer{margin-top:8px;text-align:center;font-size:10px}
-  .spacer{height:8px}
-  @media print{html,body,.receipt{width:74mm!important;max-width:74mm!important}.receipt{page-break-after:avoid}}
+  @page{size:80mm auto;margin:2.5mm 3mm 3mm}
+  html,body{margin:0!important;padding:0!important;background:#fff!important;color:#000!important}
+  body{width:74mm!important;max-width:74mm!important;font-family:"Courier New",Courier,monospace!important}
+  .receipt{display:block!important;width:74mm!important;max-width:74mm!important;margin:0!important;padding:0!important}
+  pre{display:block!important;width:74mm!important;max-width:74mm!important;margin:0!important;padding:0!important;white-space:pre-wrap!important;overflow:visible!important;word-break:normal!important;overflow-wrap:normal!important;font-family:"Courier New",Courier,monospace!important;font-size:10.5pt!important;line-height:1.18!important;font-weight:500!important;letter-spacing:0!important;color:#000!important}
+  @media print{
+    html,body,.receipt,pre{width:74mm!important;max-width:74mm!important}
+    body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  }
 `
 
-function openThermalPrint(order,bodyHtml,title){
+function openThermalPrint(order,text,title){
   const no=String(order.order_number).padStart(4,'0')
   const popup=window.open('','_blank','width=420,height=800')
   if(!popup){alert('Permite ventanas emergentes para imprimir el ticket.');return}
   popup.document.open()
-  popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} #${no}</title><style>${thermalStyles}</style></head><body><main class="receipt">${bodyHtml}</main><script>window.onload=()=>setTimeout(()=>{window.print();window.onafterprint=()=>window.close()},250)<\/script></body></html>`)
+  popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} #${no}</title><style>${thermalStyles}</style></head><body><main class="receipt"><pre id="ticket"></pre></main><script>document.getElementById('ticket').textContent=${JSON.stringify(thermalPlain(text))};window.onload=()=>setTimeout(()=>{window.print();window.onafterprint=()=>window.close()},350)<\/script></body></html>`)
   popup.document.close()
 }
 
-function ticketHeader(order,kind){
-  const no=String(order.order_number).padStart(4,'0')
-  const pickup=order.fulfillment_type==='pickup'
-  const customer=order.profiles?.full_name||'Cliente KYO'
-  return `<div class="center"><div class="title">KYO SUSHI</div><div class="subtitle">${escapeHtml(branchName(order.branch_id))}</div><div class="subtitle">${kind}</div></div><div class="rule double"></div><div class="meta"><div><b>PEDIDO</b><b>#${no}</b></div><div><span>TIPO</span><b>${pickup?'PICKUP':'DELIVERY'}</b></div><div><span>FECHA</span><span>${escapeHtml(thermalDate(order.created_at))}</span></div><div><span>CLIENTE</span><b class="wrap">${escapeHtml(customer)}</b></div>${order.profiles?.phone?`<div><span>TEL</span><span>${escapeHtml(order.profiles.phone)}</span></div>`:''}<div><span>PAGO</span><b>${escapeHtml(paymentLabel(order))}</b></div></div>${order.delivery_address?`<div class="rule"></div><div class="wrap"><b>DIRECCIÓN:</b> ${escapeHtml(order.delivery_address)}</div>`:''}${order.delivery_reference?`<div class="wrap"><b>REFERENCIA:</b> ${escapeHtml(order.delivery_reference)}</div>`:''}${order.delivery_notes?`<div class="wrap"><b>NOTAS PEDIDO:</b> ${escapeHtml(order.delivery_notes)}</div>`:''}<div class="rule double"></div>`
-}
-
-function kitchenItemsHtml(order){
-  return (order.order_items||[]).map(i=>{
-    const customs=customizationGroups(i).map(([title,rows])=>`<div class="group"><div class="group-title">${escapeHtml(title)}</div>${rows.map(c=>`<div class="option"><span>${escapeHtml(customizationLabel(c))}${Number(c.quantity||1)>1?` x${Number(c.quantity)}`:''}</span></div>`).join('')}</div>`).join('')
-    return `<section class="item"><div class="item-head"><span class="qty">${Number(i.quantity||0)}x</span><span class="item-name">${escapeHtml(i.product_name)}</span></div>${customs}${i.item_note?`<div class="note">NOTA: ${escapeHtml(i.item_note)}</div>`:''}</section><div class="rule"></div>`
-  }).join('')
-}
-
-function saleItemsHtml(order){
-  return (order.order_items||[]).map(i=>{
-    const qty=Math.max(1,Number(i.quantity||1))
-    const customs=customizationGroups(i).map(([title,rows])=>`<div class="group"><div class="group-title">${escapeHtml(title)}</div>${rows.map(c=>`<div class="option"><span>${escapeHtml(customizationLabel(c))}${Number(c.quantity||1)>1?` x${Number(c.quantity)}`:''}</span><b>${customizationPrice(c)>0?`+${money(customizationLineTotal(c))}`:'$0'}</b></div>`).join('')}</div>`).join('')
-    return `<section class="item"><div class="item-head"><span class="qty">${qty}x</span><span class="item-name">${escapeHtml(i.product_name)}</span><b>${money(Number(i.unit_price||0)*qty)}</b></div><div class="price-detail"><div class="row"><span>Base c/u</span><b>${money(itemBasePrice(i))}</b></div>${itemExtrasPerUnit(i)>0?`<div class="row"><span>Personalizaciones c/u</span><b>+${money(itemExtrasPerUnit(i))}</b></div>`:''}<div class="row"><span>Final c/u</span><b>${money(i.unit_price)}</b></div></div>${customs}${i.item_note?`<div class="note">NOTA: ${escapeHtml(i.item_note)}</div>`:''}</section><div class="rule"></div>`
-  }).join('')
-}
-
 function printKitchenTicket(order){
-  const method=paymentLabel(order)
-  const body=`${ticketHeader(order,'TICKET COCINA')}${kitchenItemsHtml(order)}<div class="payment">MÉTODO DE PAGO: ${escapeHtml(method)}</div><div class="footer">*** COCINA ***</div><div class="spacer"></div>`
-  openThermalPrint(order,body,'Cocina')
+  const lines=[
+    ...ticketHeaderLines(order,'TICKET COCINA'),
+    ...kitchenItemLines(order),
+    thermalCenter(`PAGO: ${paymentLabel(order)}`),
+    thermalRule('='),
+    thermalCenter('*** COCINA ***'),
+    '', '', '', ''
+  ]
+  openThermalPrint(order,lines.join('\n'),'Cocina')
 }
 
 function printSaleTicket(order){
   const method=paymentLabel(order)
   const methodKey=normalizedPaymentMethod(order)
-  const paymentStatus=isPaid(order)?`PAGADO · ${method}`:methodKey==='terminal'?`COBRAR CON TERMINAL`:methodKey==='cash'?`COBRAR EN EFECTIVO`:`PAGO CON TARJETA PENDIENTE`
-  const totals=`<div class="total-block"><div class="row"><span>Subtotal</span><b>${money(order.subtotal)}</b></div>${Number(order.delivery_fee||0)>0?`<div class="row"><span>Envío</span><b>${money(order.delivery_fee)}</b></div>`:''}<div class="row"><span>Venta KYO</span><b>${money(order.total)}</b></div>${Number(order.tip_amount||0)>0?`<div class="row"><span>Propina</span><b>${money(order.tip_amount)}</b></div>`:''}<div class="row grand"><span>TOTAL</span><b>${money(chargedTotal(order))}</b></div></div>`
-  const body=`${ticketHeader(order,'TICKET DE VENTA')}${saleItemsHtml(order)}${totals}<div class="payment">${escapeHtml(paymentStatus)}<br>TOTAL ${money(chargedTotal(order))}</div><div class="footer">Método: ${escapeHtml(method)}<br>Gracias por tu preferencia<br>Este ticket no es comprobante fiscal</div><div class="spacer"></div>`
-  openThermalPrint(order,body,'Venta')
+  const paymentStatus=isPaid(order)?`PAGADO - ${method}`:methodKey==='terminal'?'COBRAR CON TERMINAL':methodKey==='cash'?'COBRAR EN EFECTIVO':'PAGO CON TARJETA PENDIENTE'
+  const lines=[
+    ...ticketHeaderLines(order,'TICKET DE VENTA'),
+    ...saleItemLines(order),
+    ...thermalPair('SUBTOTAL',thermalMoney(order.subtotal))
+  ]
+  if(Number(order.delivery_fee||0)>0)lines.push(...thermalPair('ENVIO',thermalMoney(order.delivery_fee)))
+  if(Number(order.tip_amount||0)>0)lines.push(...thermalPair('PROPINA',thermalMoney(order.tip_amount)))
+  lines.push(
+    thermalRule('='),
+    ...thermalPair('TOTAL',thermalMoney(chargedTotal(order))),
+    thermalRule('='),
+    ...thermalWrap(paymentStatus),
+    ...thermalPair('METODO',method),
+    '',
+    thermalCenter('GRACIAS POR SU PREFERENCIA'),
+    thermalCenter('ESTE TICKET NO ES COMPROBANTE FISCAL'),
+    '', '', '', ''
+  )
+  openThermalPrint(order,lines.join('\n'),'Venta')
 }
 
 const fallbackRiders={
