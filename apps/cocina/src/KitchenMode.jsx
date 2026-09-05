@@ -56,7 +56,7 @@ const itemExtrasPerUnit=item=>(Array.isArray(item.customizations)?item.customiza
 const itemBasePrice=item=>Number(item._base_price??Math.max(0,Number(item.unit_price||0)-itemExtrasPerUnit(item)))
 const thermalDate=value=>new Date(value).toLocaleString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'})
 
-const RECEIPT_COLS=42
+const RECEIPT_COLS=36
 
 const thermalPlain=value=>String(value??'')
   .normalize('NFD')
@@ -114,18 +114,16 @@ function ticketHeaderLines(order,kind){
     thermalCenter(branchName(order.branch_id)),
     thermalCenter(kind),
     thermalRule('='),
-    ...thermalPair('PEDIDO',`#${no}`),
-    ...thermalPair('TIPO',pickup?'PICKUP':'DELIVERY'),
-    'FECHA',
-    ...thermalWrap(thermalDate(order.created_at)),
-    'CLIENTE',
-    ...thermalWrap(customer)
+    ...thermalWrap(`PEDIDO: #${no}`),
+    ...thermalWrap(`TIPO: ${pickup?'PICKUP':'DELIVERY'}`),
+    ...thermalWrap(`FECHA: ${thermalDate(order.created_at)}`),
+    ...thermalWrap(`CLIENTE: ${customer}`)
   ]
-  if(order.profiles?.phone){lines.push('TEL',...thermalWrap(order.profiles.phone))}
-  lines.push(...thermalPair('PAGO',paymentLabel(order)))
-  if(order.delivery_address){lines.push(thermalRule('-'),'DIRECCION:',...thermalWrap(order.delivery_address))}
-  if(order.delivery_reference)lines.push('REFERENCIA:',...thermalWrap(order.delivery_reference))
-  if(order.delivery_notes)lines.push('NOTAS PEDIDO:',...thermalWrap(order.delivery_notes))
+  if(order.profiles?.phone)lines.push(...thermalWrap(`TEL: ${order.profiles.phone}`))
+  lines.push(...thermalWrap(`PAGO: ${paymentLabel(order)}`))
+  if(order.delivery_address){lines.push(thermalRule('-'),...thermalWrap(`DIRECCION: ${order.delivery_address}`))}
+  if(order.delivery_reference)lines.push(...thermalWrap(`REFERENCIA: ${order.delivery_reference}`))
+  if(order.delivery_notes)lines.push(...thermalWrap(`NOTAS PEDIDO: ${order.delivery_notes}`))
   lines.push(thermalRule('='))
   return lines
 }
@@ -172,13 +170,15 @@ function saleItemLines(order){
 }
 
 const thermalStyles=`
-  @page{size:80mm auto;margin:2.5mm 3mm 3mm}
+  @page{margin:2mm 3mm 5mm}
   html,body{margin:0!important;padding:0!important;background:#fff!important;color:#000!important}
-  body{width:74mm!important;max-width:74mm!important;font-family:"Courier New",Courier,monospace!important}
-  .receipt{display:block!important;width:74mm!important;max-width:74mm!important;margin:0!important;padding:0!important}
-  pre{display:block!important;width:74mm!important;max-width:74mm!important;margin:0!important;padding:0!important;white-space:pre-wrap!important;overflow:visible!important;word-break:normal!important;overflow-wrap:normal!important;font-family:"Courier New",Courier,monospace!important;font-size:10.5pt!important;line-height:1.18!important;font-weight:500!important;letter-spacing:0!important;color:#000!important}
+  body{font-family:"Courier New",Courier,monospace!important}
+  .receipt{box-sizing:border-box!important;width:70mm!important;max-width:70mm!important;margin:0!important;padding:0!important}
+  .ticket-line{display:block!important;box-sizing:border-box!important;width:100%!important;min-height:3.3mm!important;margin:0!important;padding:0!important;white-space:pre-wrap!important;word-break:normal!important;overflow-wrap:break-word!important;font-family:"Courier New",Courier,monospace!important;font-size:8.2pt!important;line-height:1.25!important;font-weight:600!important;letter-spacing:0!important;color:#000!important;clear:both!important;break-inside:avoid!important}
+  .ticket-line.blank{height:3.3mm!important;min-height:3.3mm!important}
   @media print{
-    html,body,.receipt,pre{width:74mm!important;max-width:74mm!important}
+    html,body{width:auto!important;max-width:none!important}
+    .receipt{width:70mm!important;max-width:70mm!important}
     body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   }
 `
@@ -187,8 +187,13 @@ function openThermalPrint(order,text,title){
   const no=String(order.order_number).padStart(4,'0')
   const popup=window.open('','_blank','width=420,height=800')
   if(!popup){alert('Permite ventanas emergentes para imprimir el ticket.');return}
+  const lines=thermalPlain(text).split('\n')
+  const htmlLines=lines.map(line=>line.length
+    ?`<div class="ticket-line">${escapeHtml(line)}</div>`
+    :'<div class="ticket-line blank">&nbsp;</div>'
+  ).join('')
   popup.document.open()
-  popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} #${no}</title><style>${thermalStyles}</style></head><body><main class="receipt"><pre id="ticket"></pre></main><script>document.getElementById('ticket').textContent=${JSON.stringify(thermalPlain(text))};window.onload=()=>setTimeout(()=>{window.print();window.onafterprint=()=>window.close()},350)<\/script></body></html>`)
+  popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)} #${no}</title><style>${thermalStyles}</style></head><body><main class="receipt">${htmlLines}</main><script>window.onload=()=>setTimeout(()=>{window.print();window.onafterprint=()=>window.close()},450)<\/script></body></html>`)
   popup.document.close()
 }
 
