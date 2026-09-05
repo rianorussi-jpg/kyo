@@ -170,15 +170,55 @@ function saleItemLines(order){
 }
 
 const thermalStyles=`
-  @page{margin:2mm 3mm 5mm}
-  html,body{margin:0!important;padding:0!important;background:#fff!important;color:#000!important}
+  @page{margin:0}
+  html,body{
+    margin:0!important;
+    padding:0!important;
+    width:80mm!important;
+    min-width:80mm!important;
+    max-width:80mm!important;
+    background:#fff!important;
+    color:#000!important;
+  }
   body{font-family:"Courier New",Courier,monospace!important}
-  .receipt{box-sizing:border-box!important;width:70mm!important;max-width:70mm!important;margin:0!important;padding:0!important}
-  .ticket-line{display:block!important;box-sizing:border-box!important;width:100%!important;min-height:3.3mm!important;margin:0!important;padding:0!important;white-space:pre-wrap!important;word-break:normal!important;overflow-wrap:break-word!important;font-family:"Courier New",Courier,monospace!important;font-size:8.2pt!important;line-height:1.25!important;font-weight:600!important;letter-spacing:0!important;color:#000!important;clear:both!important;break-inside:avoid!important}
-  .ticket-line.blank{height:3.3mm!important;min-height:3.3mm!important}
+  .receipt{
+    box-sizing:border-box!important;
+    width:80mm!important;
+    min-width:80mm!important;
+    max-width:80mm!important;
+    margin:0!important;
+    padding:3mm 4mm 8mm!important;
+  }
+  .ticket-line{
+    display:block!important;
+    box-sizing:border-box!important;
+    width:72mm!important;
+    min-width:72mm!important;
+    max-width:72mm!important;
+    height:auto!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    white-space:pre!important;
+    word-break:normal!important;
+    overflow-wrap:normal!important;
+    font-family:"Courier New",Courier,monospace!important;
+    font-size:9pt!important;
+    line-height:1.18!important;
+    font-weight:600!important;
+    letter-spacing:0!important;
+    color:#000!important;
+    clear:both!important;
+  }
+  .ticket-line.blank{height:3mm!important;min-height:3mm!important}
   @media print{
-    html,body{width:auto!important;max-width:none!important}
-    .receipt{width:70mm!important;max-width:70mm!important}
+    html,body{
+      width:80mm!important;
+      min-width:80mm!important;
+      max-width:80mm!important;
+      overflow:visible!important;
+    }
+    .receipt{width:80mm!important;min-width:80mm!important;max-width:80mm!important}
     body{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   }
 `
