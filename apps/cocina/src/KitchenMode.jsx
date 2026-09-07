@@ -350,7 +350,7 @@ export function KitchenMode({auth}){
       const extras=customs.reduce((sum,c)=>sum+customizationLineTotal(c),0)
       const product=productMap.get(String(item.product_id))
       return {...item,customizations:customs,_base_price:Math.max(0,Number(item.unit_price||0)-extras),_extras_total:extras,_promo_eligible:!!product?.promo_3x2_eligible,_catalog_base_price:Number(product?.price??Math.max(0,Number(item.unit_price||0)-extras))}
-    })})))
+    })}))
     setOrders(hydrated)
     setLoading(false)
   }
