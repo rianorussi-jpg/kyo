@@ -104,6 +104,25 @@ const thermalPair=(left,right)=>{
 }
 
 const thermalMoney=value=>money(Number(value||0))
+const promoDiscount=order=>Number(order?.promo_discount||0)
+const subtotalBeforePromo=order=>Number(order?.subtotal||0)+promoDiscount(order)
+
+function applyPromoFreeUnits(order){
+  const items=(order.order_items||[]).map(i=>({...i,_promo_free_qty:0}))
+  if(!order.promo_3x2_applied||promoDiscount(order)<=0)return {...order,order_items:items}
+  const eligibleUnits=[]
+  items.forEach((item,itemIndex)=>{
+    if(!item._promo_eligible)return
+    const qty=Math.max(1,Number(item.quantity||1))
+    const base=Number(item._catalog_base_price??itemBasePrice(item))
+    for(let n=0;n<qty;n++)eligibleUnits.push({itemIndex,base})
+  })
+  const freeCount=Math.floor(eligibleUnits.length/3)
+  eligibleUnits.sort((a,b)=>a.base-b.base).slice(0,freeCount).forEach(({itemIndex})=>{
+    items[itemIndex]._promo_free_qty=(items[itemIndex]._promo_free_qty||0)+1
+  })
+  return {...order,order_items:items}
+}
 
 function ticketHeaderLines(order,kind){
   const no=String(order.order_number).padStart(4,'0')
@@ -162,7 +181,13 @@ function saleItemLines(order){
     }
     if(itemExtrasPerUnit(i)>0)lines.push(...thermalPair('  Personaliz. c/u',`+${thermalMoney(itemExtrasPerUnit(i))}`))
     lines.push(...thermalPair('  Final c/u',thermalMoney(i.unit_price)))
-    lines.push(...thermalPair('  Importe',thermalMoney(Number(i.unit_price||0)*qty)))
+    lines.push(...thermalPair('  Importe productos',thermalMoney(Number(i.unit_price||0)*qty)))
+    if(Number(i._promo_free_qty||0)>0){
+      const freeQty=Number(i._promo_free_qty||0)
+      const freeBase=Number(i._catalog_base_price??itemBasePrice(i))
+      lines.push(...thermalPair(`  PROMO 3x2: ${freeQty} base gratis`, `-${thermalMoney(freeBase*freeQty)}`))
+      if(itemExtrasPerUnit(i)>0)lines.push(...thermalWrap('    Personalizaciones se cobran normal'))
+    }
     if(i.item_note)lines.push(...thermalWrap(`  NOTA: ${i.item_note}`))
     lines.push(thermalRule('-'))
   }
@@ -216,8 +241,14 @@ function printSaleTicket(order){
   const lines=[
     ...ticketHeaderLines(order,'TICKET DE VENTA'),
     ...saleItemLines(order),
-    ...thermalPair('SUBTOTAL',thermalMoney(order.subtotal))
+    ...thermalPair('PRODUCTOS ANTES PROMO',thermalMoney(subtotalBeforePromo(order)))
   ]
+  if(promoDiscount(order)>0){
+    lines.push(...thermalPair('PROMO 3x2',`-${thermalMoney(promoDiscount(order))}`))
+    lines.push(...thermalPair('SUBTOTAL CON PROMO',thermalMoney(order.subtotal)))
+  }else{
+    lines.push(...thermalPair('SUBTOTAL',thermalMoney(order.subtotal)))
+  }
   if(Number(order.delivery_fee||0)>0)lines.push(...thermalPair('ENVIO',thermalMoney(order.delivery_fee)))
   if(Number(order.tip_amount||0)>0)lines.push(...thermalPair('PROPINA',thermalMoney(order.tip_amount)))
   lines.push(
@@ -303,17 +334,23 @@ export function KitchenMode({auth}){
     const rawOrders=data||[]
     const allItems=rawOrders.flatMap(o=>o.order_items||[])
     const templateIds=[...new Set(allItems.flatMap(i=>(Array.isArray(i.customizations)?i.customizations:[]).map(c=>c.template_id).filter(Boolean)))]
-    const {data:templates}=templateIds.length?await supabase.from('customization_templates').select('id,name,options').in('id',templateIds):{data:[]}
+    const productIds=[...new Set(allItems.map(i=>i.product_id).filter(Boolean))]
+    const [{data:templates},{data:promoProducts}]=await Promise.all([
+      templateIds.length?supabase.from('customization_templates').select('id,name,options').in('id',templateIds):Promise.resolve({data:[]}),
+      productIds.length?supabase.from('products').select('id,price,promo_3x2_eligible').in('id',productIds):Promise.resolve({data:[]})
+    ])
     const templateMap=new Map((templates||[]).map(t=>[String(t.id),t]))
-    const hydrated=rawOrders.map(order=>({...order,order_items:(order.order_items||[]).map(item=>{
+    const productMap=new Map((promoProducts||[]).map(p=>[String(p.id),p]))
+    const hydrated=rawOrders.map(order=>applyPromoFreeUnits({...order,order_items:(order.order_items||[]).map(item=>{
       const customs=(Array.isArray(item.customizations)?item.customizations:[]).map(c=>{
         const template=templateMap.get(String(c.template_id))
         const option=(template?.options||[]).find(o=>String(o.id)===String(c.option_id))
         return {...c,template_name:template?.name||c.template_name||'Personalización',label:option?.name||option?.label||c.label||c.option_name||c.name||'Opción',price:Number(option?.price??c.price??0)}
       })
       const extras=customs.reduce((sum,c)=>sum+customizationLineTotal(c),0)
-      return {...item,customizations:customs,_base_price:Math.max(0,Number(item.unit_price||0)-extras),_extras_total:extras}
-    })}))
+      const product=productMap.get(String(item.product_id))
+      return {...item,customizations:customs,_base_price:Math.max(0,Number(item.unit_price||0)-extras),_extras_total:extras,_promo_eligible:!!product?.promo_3x2_eligible,_catalog_base_price:Number(product?.price??Math.max(0,Number(item.unit_price||0)-extras))}
+    })})))
     setOrders(hydrated)
     setLoading(false)
   }
@@ -378,8 +415,8 @@ function KitchenOrderDetail({order,onClose,onPrintKitchen,onPrintSale,onStatusAc
     <div className={`kitchen-detail-fulfillment ${pickup?'pickup':'delivery'}`}><div>{pickup?<Store/>:<Bike/>}<span><small>TIPO DE PEDIDO</small><strong>{pickup?'PICKUP · RECOGE EN SUCURSAL':'DELIVERY · ENVÍO A DOMICILIO'}</strong></span></div><div className={paid?'paid':'collect'}>{paid?<CreditCard/>:<AlertTriangle/>}<span><small>{paid?'PAGO CONFIRMADO':'COBRO PENDIENTE'}</small><strong>{paid?`Ya se cobró ${money(chargedTotal(order))}`:`Cobrar ${money(chargedTotal(order))} · ${paymentLabel(order)}`}</strong></span></div></div>
     <div className="kitchen-detail-customer"><div><small>CLIENTE</small><strong>{order.profiles?.full_name||'Cliente KYO'}</strong>{order.profiles?.phone&&<span>{order.profiles.phone}</span>}</div><div><small>MÉTODO DE PAGO</small><strong>{paymentLabel(order)}</strong><span>{paid?'Pago confirmado':'Pendiente al entregar'}</span></div></div>
     {(order.delivery_address||order.delivery_reference||order.delivery_notes)&&<div className="kitchen-detail-notes">{order.delivery_address&&<p><MapPin/><span><small>DIRECCIÓN</small><strong>{order.delivery_address}</strong></span></p>}{order.delivery_reference&&<p><span><small>REFERENCIA</small><strong>{order.delivery_reference}</strong></span></p>}{order.delivery_notes&&<p className="important"><span><small>NOTAS DEL PEDIDO</small><strong>{order.delivery_notes}</strong></span></p>}</div>}
-    <div className="kitchen-detail-items"><div className="kitchen-detail-section-title"><span>PRODUCTOS</span><b>{order.order_items?.reduce((a,i)=>a+Number(i.quantity||0),0)||0} unidades</b></div>{order.order_items?.map(i=><article key={i.id}><div className="detail-item-main"><span><b>{i.quantity}×</b><strong>{i.product_name}</strong></span><div><small>Precio final c/u</small><strong>{money(i.unit_price)}</strong><em>{money(Number(i.unit_price||0)*Number(i.quantity||0))} total</em></div></div><div className="detail-price-breakdown"><div><span>Producto base</span><strong>{money(itemBasePrice(i))}</strong></div>{itemExtrasPerUnit(i)>0&&<div><span>Personalizaciones</span><strong>+{money(itemExtrasPerUnit(i))}</strong></div>}<div className="final"><span>Precio final por unidad</span><strong>{money(i.unit_price)}</strong></div></div>{customizationGroups(i).length>0&&<div className="detail-customs">{customizationGroups(i).map(([title,rows])=><section key={title}><b>{title}</b>{rows.map((c,idx)=><p key={idx}><span>{customizationLabel(c)}{Number(c.quantity||1)>1?` ×${c.quantity}`:''}</span><strong>{customizationPrice(c)>0?`+${money(customizationLineTotal(c))}`:'Sin costo'}</strong></p>)}</section>)}</div>}{i.item_note&&<div className="detail-item-note"><b>NOTA DEL CLIENTE</b><span>{i.item_note}</span></div>}</article>)}</div>
-    <div className="kitchen-detail-totals"><div><span>Subtotal</span><strong>{money(order.subtotal)}</strong></div>{Number(order.delivery_fee||0)>0&&<div><span>Envío</span><strong>{money(order.delivery_fee)}</strong></div>}<div><span>Venta KYO</span><strong>{money(order.total)}</strong></div>{Number(order.tip_amount||0)>0&&<div><span>Propina</span><strong>{money(order.tip_amount)}</strong></div>}<div className="grand"><span>{paid?'TOTAL COBRADO':'TOTAL A COBRAR'}</span><strong>{money(chargedTotal(order))}</strong></div></div>
+    <div className="kitchen-detail-items"><div className="kitchen-detail-section-title"><span>PRODUCTOS</span><b>{order.order_items?.reduce((a,i)=>a+Number(i.quantity||0),0)||0} unidades</b></div>{order.order_items?.map(i=><article key={i.id}><div className="detail-item-main"><span><b>{i.quantity}×</b><strong>{i.product_name}</strong></span><div><small>Precio final c/u</small><strong>{money(i.unit_price)}</strong><em>{money(Number(i.unit_price||0)*Number(i.quantity||0))} total</em></div></div><div className="detail-price-breakdown"><div><span>Producto base</span><strong>{money(itemBasePrice(i))}</strong></div>{itemExtrasPerUnit(i)>0&&<div><span>Personalizaciones</span><strong>+{money(itemExtrasPerUnit(i))}</strong></div>}{Number(i._promo_free_qty||0)>0&&<div className="promo-free-detail"><span>Promo 3×2 · {i._promo_free_qty} {Number(i._promo_free_qty)===1?'unidad con base gratis':'unidades con base gratis'}</span><strong>-{money(Number(i._catalog_base_price??itemBasePrice(i))*Number(i._promo_free_qty))}</strong></div>}<div className="final"><span>Precio final por unidad</span><strong>{money(i.unit_price)}</strong></div></div>{customizationGroups(i).length>0&&<div className="detail-customs">{customizationGroups(i).map(([title,rows])=><section key={title}><b>{title}</b>{rows.map((c,idx)=><p key={idx}><span>{customizationLabel(c)}{Number(c.quantity||1)>1?` ×${c.quantity}`:''}</span><strong>{customizationPrice(c)>0?`+${money(customizationLineTotal(c))}`:'Sin costo'}</strong></p>)}</section>)}</div>}{i.item_note&&<div className="detail-item-note"><b>NOTA DEL CLIENTE</b><span>{i.item_note}</span></div>}</article>)}</div>
+    <div className="kitchen-detail-totals"><div><span>Productos antes de promo</span><strong>{money(subtotalBeforePromo(order))}</strong></div>{promoDiscount(order)>0&&<div className="promo-free-detail"><span>Promo 3×2 · producto(s) base gratis</span><strong>-{money(promoDiscount(order))}</strong></div>}<div><span>Subtotal después de promo</span><strong>{money(order.subtotal)}</strong></div>{Number(order.delivery_fee||0)>0&&<div><span>Envío</span><strong>{money(order.delivery_fee)}</strong></div>}<div><span>Venta KYO</span><strong>{money(order.total)}</strong></div>{Number(order.tip_amount||0)>0&&<div><span>Propina</span><strong>{money(order.tip_amount)}</strong></div>}<div className="grand"><span>{paid?'TOTAL COBRADO':'TOTAL A COBRAR'}</span><strong>{money(chargedTotal(order))}</strong></div></div>
     <footer className="kitchen-detail-footer"><button className="secondary" onClick={onClose}>Cerrar</button><button className="primary-print kitchen" onClick={onPrintKitchen}><Printer/> Imprimir ticket cocina</button><button className="primary-print sale" onClick={onPrintSale}><Printer/> Imprimir ticket venta</button>{actionLabel&&<button className={`detail-status-action ${order.status==='preparing'?'ready-action':pickup?'pickup-action':'route-action'}`} onClick={()=>onStatusAction(order)}>{order.status==='preparing'?<Check/>:pickup?<Check/>:<Bike/>}{actionLabel}</button>}</footer>
   </section></div>
 }
