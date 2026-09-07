@@ -3622,3 +3622,12 @@ main{
   .notification-auto-list>div{grid-template-columns:1fr;gap:5px}
   .notification-send-btn{width:100%}
 }
+
+/* ===== KYO v28 · Configuración promo 3x2 ===== */
+.promo-admin-card{margin:0 0 20px;padding:22px;border:1px solid #e3c7ad;background:#fff8f1;border-radius:18px;color:#171717}
+.promo-admin-head{display:flex;justify-content:space-between;gap:28px;align-items:flex-start}.promo-admin-head small,.promo-days-admin>strong{font-size:10px;letter-spacing:.12em;font-weight:900;color:#bc5d18}.promo-admin-head h2{font-size:25px;margin:3px 0 6px}.promo-admin-head p{margin:0;max-width:720px;font-size:12px;color:#68615c;line-height:1.5}
+.promo-master-toggle{min-width:270px;padding:13px 15px;border:1px solid #e3d2c4;border-radius:13px;background:#fff;display:flex;gap:10px;align-items:center;cursor:pointer}.promo-master-toggle input{width:18px;height:18px;accent-color:#f47a1f}.promo-master-toggle span{display:grid;gap:2px}.promo-master-toggle strong{font-size:13px}.promo-master-toggle small{font-size:9px;color:#777;line-height:1.35}
+.promo-days-admin{margin-top:18px;padding-top:16px;border-top:1px solid #ead9cb}.promo-days-admin>div{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}.promo-days-admin label{border:1px solid #d9d9d9;background:#fff;border-radius:999px;padding:8px 11px;font-size:11px;font-weight:800;cursor:pointer}.promo-days-admin label input{display:none}.promo-days-admin label.active{background:#f47a1f;border-color:#f47a1f;color:#111}
+.promo-admin-help{margin-top:16px;padding:12px 14px;background:#241910;color:#fff;border-radius:12px;display:flex;gap:10px;align-items:center}.promo-admin-help svg{color:#f47a1f}.promo-admin-help span{display:grid;gap:2px}.promo-admin-help strong{font-size:12px}.promo-admin-help small{font-size:9px;color:#b6a89e}
+.promo-product-admin-toggle{width:100%;margin-top:9px;border:1px solid #ddd;background:#fafafa;border-radius:10px;padding:9px 10px;display:flex;align-items:center;gap:8px;text-align:left;cursor:pointer;color:#777}.promo-product-admin-toggle span{display:grid}.promo-product-admin-toggle small{font-size:8px;letter-spacing:.1em;font-weight:900}.promo-product-admin-toggle strong{font-size:11px}.promo-product-admin-toggle.active{background:#fff0e4;border-color:#f47a1f;color:#ba5410}.promo-product-admin-toggle.active svg{color:#f47a1f}
+@media(max-width:760px){.promo-admin-head{display:grid}.promo-master-toggle{min-width:0;width:100%}.promo-admin-card{padding:16px}}

@@ -3725,3 +3725,22 @@ main{
 
 .stripe-save-card-check{display:flex;gap:11px;align-items:flex-start;margin:12px 0 18px;padding:13px 14px;border:1px solid #353535;border-radius:14px;background:#191919}.stripe-save-card-check input{margin-top:3px;width:18px;height:18px;accent-color:var(--kyo-orange,#ff6a00)}.stripe-save-card-check span{display:grid;gap:3px}.stripe-save-card-check strong{font-size:13px}.stripe-save-card-check small{color:#8f8f8b;font-size:11px;line-height:1.35}
 
+
+/* ===== KYO v28 · Promo 3x2 configurable ===== */
+.promo-3x2-home{max-width:1180px;margin:18px auto 34px;padding:24px 28px;border:1px solid #4a3322;background:linear-gradient(135deg,#24170f,#171717 58%);border-radius:24px;display:flex;align-items:center;justify-content:space-between;gap:24px}
+.promo-3x2-home.active{border-color:#f47a1f;box-shadow:0 0 0 1px rgba(244,122,31,.18) inset}
+.promo-3x2-home h2{margin:5px 0 8px;font-size:27px;color:#fff}
+.promo-3x2-home p{margin:0;max-width:720px;color:#aaa;line-height:1.5}
+.promo-3x2-kicker{font-size:12px;letter-spacing:.18em;font-weight:900;color:#f47a1f}
+.promo-3x2-home button{border:0;border-radius:999px;background:#f47a1f;color:#111;font-weight:900;padding:14px 19px;display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer}
+.promo-3x2-menu-strip{max-width:1180px;margin:0 auto 14px;padding:15px 18px;border:1px solid #3a3a3a;border-radius:16px;background:#181818;display:flex;align-items:center;gap:18px}
+.promo-3x2-menu-strip.active{border-color:#f47a1f;background:#21170f}
+.promo-3x2-menu-strip>div{display:grid;gap:2px;min-width:145px}.promo-3x2-menu-strip b{font-size:18px;color:#f47a1f}.promo-3x2-menu-strip span{font-size:10px;letter-spacing:.12em;font-weight:900;color:#eee}.promo-3x2-menu-strip p{margin:0;color:#999;font-size:12px;line-height:1.45}
+.cat-tabs .promo-tab{border-color:#73421f;color:#f47a1f}.cat-tabs .promo-tab.active{background:#f47a1f!important;color:#111!important}
+.product-card.promo-eligible{border-color:#4b3423!important}
+.promo-product-badge{position:absolute;left:10px;bottom:10px;z-index:3;padding:6px 9px;border-radius:999px;background:#2a2019;color:#ff9a4d;border:1px solid #714520;font-size:9px;font-weight:900;letter-spacing:.04em}
+.promo-product-badge.active{background:#f47a1f;color:#111;border-color:#f47a1f}
+.promo-product-note{margin:5px 0 8px;padding:7px 8px;border-radius:8px;background:#261b13;color:#f4a568;font-size:9px;line-height:1.35;font-weight:700}
+.promo-discount-row{color:#f47a1f!important}.promo-discount-row strong{color:#f47a1f!important}.promo-discount-row small{color:#9d7457;font-size:9px}
+.promo-cart-status{margin:10px 24px 0;padding:12px 14px;border:1px solid #6a3c1d;background:#21170f;border-radius:14px;display:flex;gap:10px;align-items:center}.promo-cart-status>svg{color:#f47a1f}.promo-cart-status span{display:grid;gap:2px}.promo-cart-status strong{font-size:13px}.promo-cart-status small{font-size:10px;color:#a78d7a}
+@media(max-width:760px){.promo-3x2-home{margin:12px 12px 24px;padding:18px;display:grid}.promo-3x2-home h2{font-size:22px}.promo-3x2-home button{justify-content:center}.promo-3x2-menu-strip{margin:0 12px 12px;display:grid;gap:7px}.promo-cart-status{margin-left:12px;margin-right:12px}}

@@ -630,7 +630,27 @@ function AdminStats({orders,fixedBranch=null}){
 function AdminMenuManager({catalog,onEdit,fixedBranch=null}){
   const [view,setView]=useState('products')
   const [saving,setSaving]=useState('')
+  const [promoSaving,setPromoSaving]=useState(false)
   const branches=(catalog.branches||[]).filter(b=>!fixedBranch||b.id===fixedBranch)
+
+  const savePromoSettings=async(next={})=>{
+    const enabled=next.enabled??!!catalog.settings?.promo_3x2_enabled
+    const days=next.days??(catalog.settings?.promo_3x2_days||['tue','wed','thu'])
+    if(!days.length)return alert('Selecciona al menos un día para la promo 3×2.')
+    setPromoSaving(true)
+    const {error}=await supabase.from('app_settings').update({promo_3x2_enabled:enabled,promo_3x2_days:days,updated_at:new Date().toISOString()}).eq('id','main')
+    setPromoSaving(false)
+    if(error)return alert(error.message)
+    await catalog.refresh()
+  }
+
+  const setPromoProduct=async(product,eligible)=>{
+    const key=`promo:${product.id}`;setSaving(key)
+    const {error}=await supabase.from('products').update({promo_3x2_eligible:eligible}).eq('id',product.id)
+    setSaving('')
+    if(error)return alert(error.message)
+    await catalog.refresh()
+  }
 
   const setProductBranch=async(product,branchId,available)=>{
     if(fixedBranch&&branchId!==fixedBranch)return
@@ -652,6 +672,7 @@ function AdminMenuManager({catalog,onEdit,fixedBranch=null}){
   }))
 
   return <>
+    {!fixedBranch&&<section className="promo-admin-card"><div className="promo-admin-head"><div><small>PROMOCIÓN AUTOMÁTICA</small><h2>3×2 KYO</h2><p>El cliente puede mezclar cualquier producto marcado. Por cada 3 participantes, se descuenta el producto base de menor precio. Las personalizaciones conservan su costo.</p></div><label className="promo-master-toggle"><input type="checkbox" checked={!!catalog.settings?.promo_3x2_enabled} disabled={promoSaving} onChange={e=>savePromoSettings({enabled:e.target.checked})}/><span><strong>{catalog.settings?.promo_3x2_enabled?'Promo activa':'Promo apagada'}</strong><small>La fecha y el día se validan en Supabase, no en el dispositivo del cliente.</small></span></label></div><div className="promo-days-admin"><strong>Días en que aplica</strong><div>{businessDayLabels.map(([key,label])=>{const days=catalog.settings?.promo_3x2_days||['tue','wed','thu'];const checked=days.includes(key);return <label key={key} className={checked?'active':''}><input type="checkbox" checked={checked} disabled={promoSaving} onChange={()=>{const next=checked?days.filter(d=>d!==key):[...days,key];savePromoSettings({days:next})}}/><span>{label}</span></label>})}</div></div><div className="promo-admin-help"><Percent/><span><strong>Marca los productos participantes abajo</strong><small>Puede ser cualquier mezcla de rollos, ramen, pokes u otros productos que decidan incluir.</small></span></div></section>}
     {!fixedBranch&&<div className="menu-admin-tabs">
       <button className={view==='products'?'active':''} onClick={()=>setView('products')}>Productos por categoría</button>
       <button className={view==='categories'?'active':''} onClick={()=>setView('categories')}>Categorías y subcategorías</button>
@@ -663,17 +684,17 @@ function AdminMenuManager({catalog,onEdit,fixedBranch=null}){
           <div className="admin-menu-category-head"><div><small>CATEGORÍA</small><h2>{cat.name}</h2></div><span>{products.length} producto{products.length===1?'':'s'}</span></div>
           {subs.length>0
             ?<>
-              {subs.map(sub=>{const items=products.filter(p=>p.subcategory===sub.name);return items.length?<div className="admin-subcategory-block" key={sub.id}><h3>{sub.name}</h3><div className="admin-product-grid">{items.map(product=><AdminProductCard key={product.id} product={product} branches={branches} saving={saving} setProductBranch={setProductBranch} onEdit={onEdit}/>)}</div></div>:null})}
-              {products.some(p=>!p.subcategory)&&<div className="admin-subcategory-block"><h3>Sin subcategoría</h3><div className="admin-product-grid">{products.filter(p=>!p.subcategory).map(product=><AdminProductCard key={product.id} product={product} branches={branches} saving={saving} setProductBranch={setProductBranch} onEdit={onEdit}/>)}</div></div>}
+              {subs.map(sub=>{const items=products.filter(p=>p.subcategory===sub.name);return items.length?<div className="admin-subcategory-block" key={sub.id}><h3>{sub.name}</h3><div className="admin-product-grid">{items.map(product=><AdminProductCard key={product.id} product={product} branches={branches} saving={saving} setProductBranch={setProductBranch} setPromoProduct={!fixedBranch?setPromoProduct:null} onEdit={onEdit}/>)}</div></div>:null})}
+              {products.some(p=>!p.subcategory)&&<div className="admin-subcategory-block"><h3>Sin subcategoría</h3><div className="admin-product-grid">{products.filter(p=>!p.subcategory).map(product=><AdminProductCard key={product.id} product={product} branches={branches} saving={saving} setProductBranch={setProductBranch} setPromoProduct={!fixedBranch?setPromoProduct:null} onEdit={onEdit}/>)}</div></div>}
             </>
-            :<div className="admin-product-grid">{products.map(product=><AdminProductCard key={product.id} product={product} branches={branches} saving={saving} setProductBranch={setProductBranch} onEdit={onEdit}/>)}</div>}
+            :<div className="admin-product-grid">{products.map(product=><AdminProductCard key={product.id} product={product} branches={branches} saving={saving} setProductBranch={setProductBranch} setPromoProduct={!fixedBranch?setPromoProduct:null} onEdit={onEdit}/>)}</div>}
         </section>)}
       </div>
       :<CategoryManager catalog={catalog}/>}
   </>
 }
 
-function AdminProductCard({product,branches,saving,setProductBranch,onEdit}){
+function AdminProductCard({product,branches,saving,setProductBranch,setPromoProduct,onEdit}){
   return <article className={`admin-product-card-branch ${!product.available?'disabled':''}`}>
     <img src={product.image||product.image_url} alt={product.name}/>
     <div className="admin-product-card-info">
@@ -681,6 +702,7 @@ function AdminProductCard({product,branches,saving,setProductBranch,onEdit}){
       <h3>{product.name}</h3>
       <strong>{money(product.price)}</strong>
       <span>{product.available?'Disponible en menú':'Agotado globalmente'}</span>
+      {setPromoProduct&&<button type="button" className={`promo-product-admin-toggle ${product.promo_3x2_eligible?'active':''}`} disabled={saving===`promo:${product.id}`} onClick={()=>setPromoProduct(product,!product.promo_3x2_eligible)}><Percent size={16}/><span><small>PROMO 3×2</small><strong>{saving===`promo:${product.id}`?'Guardando...':product.promo_3x2_eligible?'Participa':'No participa'}</strong></span></button>}
       <div className="branch-availability-row">
         {branches.map(b=>{const available=product.branchAvailability?.[b.id]!==false;const key=`${product.id}:${b.id}`;return <button type="button" key={b.id} disabled={saving===key||!product.available} className={available?'available':'unavailable'} onClick={()=>setProductBranch(product,b.id,!available)}><span>{b.short||b.name}</span><b>{saving===key?'Guardando...':available?'Disponible':'No disponible'}</b></button>})}
       </div>
