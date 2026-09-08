@@ -3726,117 +3726,21 @@ main{
 .stripe-save-card-check{display:flex;gap:11px;align-items:flex-start;margin:12px 0 18px;padding:13px 14px;border:1px solid #353535;border-radius:14px;background:#191919}.stripe-save-card-check input{margin-top:3px;width:18px;height:18px;accent-color:var(--kyo-orange,#ff6a00)}.stripe-save-card-check span{display:grid;gap:3px}.stripe-save-card-check strong{font-size:13px}.stripe-save-card-check small{color:#8f8f8b;font-size:11px;line-height:1.35}
 
 
-
-/* ===== v32 Capacitor: safe areas iOS / Android ===== */
-html,body,#root{
-  min-height:100%;
-}
-body{
-  padding-top:env(safe-area-inset-top, 0px);
-}
-
-/*
-  El safe-area vive en un dock transparente, NO dentro de la isla.
-  Así la barra conserva su tamaño visual y flota por encima del Home Indicator.
-*/
-.bottom-nav-dock{
-  position:fixed;
-  left:0;
-  right:0;
-  bottom:0;
-  z-index:50;
-  display:flex;
-  justify-content:center;
-  padding:0 12px calc(env(safe-area-inset-bottom, 0px) + 8px);
-  pointer-events:none;
-}
-
-.bottom-nav{
-  position:relative!important;
-  left:auto!important;
-  right:auto!important;
-  bottom:auto!important;
-  transform:none!important;
-
-  width:min(570px,100%)!important;
-  height:72px!important;
-  min-height:72px!important;
-
-  padding:6px!important;
-  border:1px solid #333!important;
-  border-radius:20px!important;
-  background:rgba(22,22,22,.97)!important;
-  box-shadow:0 18px 50px rgba(0,0,0,.48)!important;
-  backdrop-filter:blur(18px);
-
-  display:flex!important;
-  align-items:stretch!important;
-  justify-content:space-between!important;
-  overflow:hidden;
-  pointer-events:auto;
-}
-
-.bottom-nav a{
-  width:20%!important;
-  min-width:0!important;
-  height:60px!important;
-  min-height:60px!important;
-  padding:6px 4px!important;
-  gap:3px!important;
-  border-radius:14px!important;
-
-  display:flex!important;
-  flex-direction:column!important;
-  align-items:center!important;
-  justify-content:center!important;
-
-  color:#777!important;
-  font-size:10px!important;
-  font-weight:700!important;
-}
-
-.bottom-nav a svg{
-  width:21px!important;
-  height:21px!important;
-  flex:0 0 21px!important;
-}
-
-.bottom-nav a span{
-  font-size:10px!important;
-  line-height:1.05!important;
-  letter-spacing:.01em!important;
-}
-
-.bottom-nav a.active{
-  background:#242424!important;
-  color:#fff!important;
-}
-.bottom-nav a.active svg{
-  color:var(--kyo-orange)!important;
-}
-.bottom-nav a.active:before{
-  top:0!important;
-}
-
-/* espacio de contenido para que la isla no tape la última parte de las páginas */
-.app-shell{
-  padding-bottom:calc(92px + env(safe-area-inset-bottom, 0px))!important;
-}
-
-/* carrito flotante: queda encima de la isla, no encima del safe-area */
-.floating-cart{
-  bottom:calc(94px + env(safe-area-inset-bottom, 0px))!important;
-}
-
-.checkout-bar{
-  padding-bottom:calc(12px + env(safe-area-inset-bottom, 0px))!important;
-}
-
-/* ===== v28 · Promo 3×2 ===== */
-.promo-3x2-badge{position:absolute;left:10px;top:10px;z-index:3;padding:6px 9px;border-radius:999px;background:rgba(20,20,20,.9);color:#fff;font-size:8px;font-weight:900;letter-spacing:.05em;box-shadow:0 4px 14px rgba(0,0,0,.14)}
-.promo-3x2-badge.today{background:#e86f1c;color:#fff}
-.promo-3x2-home{max-width:1112px;margin:22px auto 8px;padding:20px 24px;border:1px solid #4a3322;border-radius:22px;background:linear-gradient(135deg,#24170f,#171717 58%);display:flex;align-items:center;justify-content:space-between;gap:18px;box-shadow:0 12px 28px rgba(0,0,0,.18)}
-.promo-3x2-home.active{border-color:#f47a1f;box-shadow:0 0 0 1px rgba(244,122,31,.18) inset,0 12px 28px rgba(0,0,0,.2)}
-.promo-3x2-home>div{display:grid;gap:4px}.promo-3x2-home small{color:#f47a1f!important;font-size:9px;font-weight:900;letter-spacing:.12em}.promo-3x2-home strong{color:#fff!important;font-size:20px;font-weight:900;line-height:1.2}.promo-3x2-home span{color:#b8b8b8!important;font-size:11px;line-height:1.45}.promo-3x2-home button{border:0;border-radius:999px;background:#f47a1f;color:#111;padding:11px 15px;display:flex;align-items:center;gap:4px;font-weight:900;white-space:nowrap}
-.promo-3x2-summary{color:#b65312}.promo-3x2-summary strong{color:#e86f1c!important}
-@media(max-width:650px){.promo-3x2-home{margin:16px 5%;padding:17px;align-items:flex-start;display:grid}.promo-3x2-home strong{font-size:17px}.promo-3x2-home button{padding:10px 12px;font-size:10px;justify-content:center}.promo-3x2-badge{font-size:7px;padding:5px 7px}}
+/* ===== KYO v28 · Promo 3x2 configurable ===== */
+.promo-3x2-home{max-width:1180px;margin:18px auto 34px;padding:24px 28px;border:1px solid #4a3322;background:linear-gradient(135deg,#24170f,#171717 58%);border-radius:24px;display:flex;align-items:center;justify-content:space-between;gap:24px}
+.promo-3x2-home.active{border-color:#f47a1f;box-shadow:0 0 0 1px rgba(244,122,31,.18) inset}
+.promo-3x2-home h2{margin:5px 0 8px;font-size:27px;color:#fff}
+.promo-3x2-home p{margin:0;max-width:720px;color:#aaa;line-height:1.5}
+.promo-3x2-kicker{font-size:12px;letter-spacing:.18em;font-weight:900;color:#f47a1f}
+.promo-3x2-home button{border:0;border-radius:999px;background:#f47a1f;color:#111;font-weight:900;padding:14px 19px;display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer}
+.promo-3x2-menu-strip{max-width:1180px;margin:0 auto 14px;padding:15px 18px;border:1px solid #3a3a3a;border-radius:16px;background:#181818;display:flex;align-items:center;gap:18px}
+.promo-3x2-menu-strip.active{border-color:#f47a1f;background:#21170f}
+.promo-3x2-menu-strip>div{display:grid;gap:2px;min-width:145px}.promo-3x2-menu-strip b{font-size:18px;color:#f47a1f}.promo-3x2-menu-strip span{font-size:10px;letter-spacing:.12em;font-weight:900;color:#eee}.promo-3x2-menu-strip p{margin:0;color:#999;font-size:12px;line-height:1.45}
+.cat-tabs .promo-tab{border-color:#73421f;color:#f47a1f}.cat-tabs .promo-tab.active{background:#f47a1f!important;color:#111!important}
+.product-card.promo-eligible{border-color:#4b3423!important}
+.promo-product-badge{position:absolute;left:10px;bottom:10px;z-index:3;padding:6px 9px;border-radius:999px;background:#2a2019;color:#ff9a4d;border:1px solid #714520;font-size:9px;font-weight:900;letter-spacing:.04em}
+.promo-product-badge.active{background:#f47a1f;color:#111;border-color:#f47a1f}
+.promo-product-note{margin:5px 0 8px;padding:7px 8px;border-radius:8px;background:#261b13;color:#f4a568;font-size:9px;line-height:1.35;font-weight:700}
+.promo-discount-row{color:#f47a1f!important}.promo-discount-row strong{color:#f47a1f!important}.promo-discount-row small{color:#9d7457;font-size:9px}
+.promo-cart-status{margin:10px 24px 0;padding:12px 14px;border:1px solid #6a3c1d;background:#21170f;border-radius:14px;display:flex;gap:10px;align-items:center}.promo-cart-status>svg{color:#f47a1f}.promo-cart-status span{display:grid;gap:2px}.promo-cart-status strong{font-size:13px}.promo-cart-status small{font-size:10px;color:#a78d7a}
+@media(max-width:760px){.promo-3x2-home{margin:12px 12px 24px;padding:18px;display:grid}.promo-3x2-home h2{font-size:22px}.promo-3x2-home button{justify-content:center}.promo-3x2-menu-strip{margin:0 12px 12px;display:grid;gap:7px}.promo-cart-status{margin-left:12px;margin-right:12px}}

@@ -1,10 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { SplashScreen } from '@capacitor/splash-screen'
-import { Capacitor } from '@capacitor/core'
-import { App as CapacitorApp } from '@capacitor/app'
-import { Browser } from '@capacitor/browser'
-import { PushNotifications } from '@capacitor/push-notifications'
-import { SignInWithApple } from '@capacitor-community/apple-sign-in'
 import { Routes, Route, NavLink, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Home, Gift, ShoppingBag, User, Search, BookOpen, MapPin, ChevronRight, Flame, Plus, Minus,
@@ -111,73 +105,18 @@ function useAuth(){
   const [session,setSession]=useState(null)
   const [profile,setProfile]=useState(null)
   const [loading,setLoading]=useState(supabaseConfigured)
-
   const loadProfile=async user=>{
-    if(!supabase || !user){
-      setProfile(null)
-      return null
-    }
-
-    const {data,error}=await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id',user.id)
-      .maybeSingle()
-
-    if(error){
-      console.error('Profile load error',error)
-      setProfile(null)
-      return null
-    }
-
-    setProfile(data||null)
-    return data||null
+    if(!supabase || !user){setProfile(null);return}
+    const {data}=await supabase.from('profiles').select('*').eq('id',user.id).maybeSingle()
+    setProfile(data || null)
   }
-
   useEffect(()=>{
-    if(!supabase){
-      setLoading(false)
-      return
-    }
-
-    let alive=true
-
-    supabase.auth.getSession().then(({data})=>{
-      if(!alive)return
-      setSession(data.session||null)
-      setLoading(false)
-    }).catch(error=>{
-      console.error('Initial session error',error)
-      if(!alive)return
-      setSession(null)
-      setLoading(false)
-    })
-
-    const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,next)=>{
-      // IMPORTANT: don't await Supabase/database calls inside this callback.
-      // Supabase can deadlock while it is still processing the auth event.
-      setSession(next||null)
-      setLoading(false)
-    })
-
-    return()=>{
-      alive=false
-      subscription.unsubscribe()
-    }
+    if(!supabase){setLoading(false);return}
+    supabase.auth.getSession().then(async ({data})=>{setSession(data.session);await loadProfile(data.session?.user);setLoading(false)})
+    const {data:{subscription}}=supabase.auth.onAuthStateChange(async (_event,next)=>{setSession(next);await loadProfile(next?.user);setLoading(false)})
+    return ()=>subscription.unsubscribe()
   },[])
-
-  useEffect(()=>{
-    loadProfile(session?.user)
-  },[session?.user?.id])
-
-  return {
-    session,
-    user:session?.user||null,
-    profile,
-    setProfile,
-    loading,
-    refreshProfile:()=>loadProfile(session?.user)
-  }
+  return {session,user:session?.user||null,profile,setProfile,loading,refreshProfile:()=>loadProfile(session?.user)}
 }
 
 const defaultBusinessHours={
@@ -213,26 +152,44 @@ function storeStatusFromHours(hours){
   return {ready:true,open:now.time>=today.open&&now.time<today.close,day:now.day,time:now.time,today}
 }
 
-function promo3x2Config(settings){
-  return {
-    enabled:Boolean(settings?.promo_3x2_enabled ?? settings?.promo_3x2_active ?? false),
-    days:Array.isArray(settings?.promo_3x2_days)?settings.promo_3x2_days:(Array.isArray(settings?.promo_3x2_weekdays)?settings.promo_3x2_weekdays:[])
-  }
-}
 
-function promo3x2Preview(cart,settings,serverDay){
-  const cfg=promo3x2Config(settings)
-  if(!cfg.enabled||!serverDay||!cfg.days.includes(serverDay))return {active:false,discount:0,eligibleUnits:0,freeUnits:0}
-  const units=[]
-  for(const item of cart||[]){
-    if(item.reward||!item.promo_3x2_eligible)continue
-    const qty=Math.max(0,Number(item.qty||0))
-    const base=Number(item.basePrice??item.catalogBasePrice??item.price??0)
-    for(let n=0;n<qty;n++)units.push(base)
+const promoDayNames={mon:'lunes',tue:'martes',wed:'miércoles',thu:'jueves',fri:'viernes',sat:'sábado',sun:'domingo'}
+const promoDaysText=days=>(days||[]).map(d=>promoDayNames[d]||d).join(', ')
+
+function usePromo3x2(cart){
+  const [status,setStatus]=useState({enabled:false,active:false,days:[],serverDay:null,ready:false})
+  const [discount,setDiscount]=useState(0)
+  const cartSignature=useMemo(()=>JSON.stringify((cart||[]).map(i=>({product_id:i.productId||i.id,quantity:i.reward?1:i.qty,reward_voucher_id:i.rewardVoucherId||null}))),[cart])
+
+  const refreshStatus=async()=>{
+    if(!supabase){setStatus({enabled:false,active:false,days:[],serverDay:null,ready:true});return}
+    const {data,error}=await supabase.rpc('get_3x2_promo_status')
+    if(error){console.warn('No se pudo consultar promo 3x2',error);setStatus(s=>({...s,ready:true}));return}
+    const row=Array.isArray(data)?data[0]:data
+    setStatus({enabled:!!row?.enabled,active:!!row?.active_today,days:row?.days||[],serverDay:row?.server_day||null,ready:true})
   }
-  units.sort((a,b)=>a-b)
-  const freeUnits=Math.floor(units.length/3)
-  return {active:true,discount:units.slice(0,freeUnits).reduce((a,n)=>a+n,0),eligibleUnits:units.length,freeUnits}
+
+  useEffect(()=>{
+    refreshStatus()
+    const timer=setInterval(refreshStatus,60000)
+    return()=>clearInterval(timer)
+  },[])
+
+  useEffect(()=>{
+    let alive=true
+    const quote=async()=>{
+      if(!supabase||!status.active||!cart?.length){if(alive)setDiscount(0);return}
+      const items=cart.map(i=>({product_id:i.productId||i.id,quantity:i.reward?1:i.qty,reward_voucher_id:i.rewardVoucherId||null}))
+      const {data,error}=await supabase.rpc('quote_3x2_discount',{p_items:items})
+      if(!alive)return
+      if(error){console.warn('No se pudo calcular promo 3x2',error);setDiscount(0);return}
+      setDiscount(Math.max(0,Number(data||0)))
+    }
+    quote()
+    return()=>{alive=false}
+  },[cartSignature,status.active])
+
+  return {...status,discount,refresh:refreshStatus}
 }
 
 function useCatalog(){
@@ -240,7 +197,7 @@ function useCatalog(){
   const [categories,setCategories]=useState(fallbackCategories.filter(c=>c!=='Favoritos'))
   const [categoryObjects,setCategoryObjects]=useState(fallbackCategories.filter(c=>c!=='Favoritos').map((name,i)=>({id:name, name, slug:name.toLowerCase().replace(/\s+/g,'-'), parent_id:null, sort_order:(i+1)*10})))
   const [branches,setBranches]=useState(fallbackBranches)
-  const [settings,setSettings]=useState({minimum_order:200,points_reward_cost:250,points_reward_product_id:null,business_hours:null,promo_3x2_enabled:false,promo_3x2_days:[],server_day:null})
+  const [settings,setSettings]=useState({minimum_order:200,points_reward_cost:250,points_reward_product_id:null,business_hours:null,promo_3x2_enabled:false,promo_3x2_days:['tue','wed','thu']})
   const [loading,setLoading]=useState(supabaseConfigured)
   const refresh=async()=>{
     if(!supabase){setLoading(false);return}
@@ -254,7 +211,7 @@ function useCatalog(){
     if(!pe && p?.length) setProducts(p.map(x=>({...x,price:Number(x.price),category:x.category?.name||'Otros',categorySlug:x.category?.slug||'',subcategory:x.subcategory?.name||null,subcategorySlug:x.subcategory?.slug||null,desc:x.description,image:x.image_url||'/assets/kyo-logo.jpg',branchAvailability:Object.fromEntries((x.product_branch_availability||[]).map(r=>[r.branch_id,r.available])),customizations:(x.product_customizations||[]).sort((a,b)=>a.sort_order-b.sort_order).map(pc=>{const t=pc.customization_templates;if(!t)return null;const rows=t.customization_option_branch_availability||[];return {...t,sort_order:pc.sort_order,options:(t.options||[]).map(o=>({...o,branchAvailability:Object.fromEntries(rows.filter(r=>r.option_id===o.id).map(r=>[r.branch_id,r.available]))}))}}).filter(Boolean)})))
     if(c?.length){setCategoryObjects(c);setCategories(c.filter(x=>!x.parent_id).map(x=>x.name))}
     if(b?.length) setBranches(b.map(x=>({id:x.id,name:x.name,short:x.short_name,address:x.address,phone:x.phone,eta:x.eta})))
-    if(s) setSettings({minimum_order:Number(s.minimum_order||200),points_reward_cost:Number(s.points_reward_cost||250),points_reward_product_id:s.points_reward_product_id||null,business_hours:s.business_hours||defaultBusinessHours,promo_3x2_enabled:Boolean(s.promo_3x2_enabled??s.promo_3x2_active??false),promo_3x2_days:Array.isArray(s.promo_3x2_days)?s.promo_3x2_days:(Array.isArray(s.promo_3x2_weekdays)?s.promo_3x2_weekdays:[]),server_day:s.server_day||null})
+    if(s) setSettings({minimum_order:Number(s.minimum_order||200),points_reward_cost:Number(s.points_reward_cost||250),points_reward_product_id:s.points_reward_product_id||null,business_hours:s.business_hours||defaultBusinessHours,promo_3x2_enabled:!!s.promo_3x2_enabled,promo_3x2_days:s.promo_3x2_days||['tue','wed','thu']})
     setLoading(false)
   }
   useEffect(()=>{refresh()},[])
@@ -280,184 +237,21 @@ function ScrollToTop(){
   return null
 }
 
-
-function usePushNotifications(auth){
-  useEffect(()=>{
-    if(!Capacitor.isNativePlatform()||!supabase||!auth?.user?.id)return
-
-    let registrationListener
-    let registrationErrorListener
-    let actionListener
-    let disposed=false
-
-    const saveToken=async token=>{
-      if(!token||disposed)return
-
-      const {error}=await supabase
-        .from('push_tokens')
-        .upsert({
-          user_id:auth.user.id,
-          token,
-          platform:'ios',
-          updated_at:new Date().toISOString()
-        },{onConflict:'token'})
-
-      if(error)console.error('Push token save error',error)
-      else console.log('KYO APNs token registered')
-    }
-
-    const setup=async()=>{
-      try{
-        registrationListener=await PushNotifications.addListener('registration',result=>{
-          saveToken(result.value)
-        })
-
-        registrationErrorListener=await PushNotifications.addListener('registrationError',error=>{
-          console.error('Push registration error',error)
-        })
-
-        actionListener=await PushNotifications.addListener('pushNotificationActionPerformed',action=>{
-          const orderId=action.notification?.data?.order_id||action.notification?.data?.orderId
-          if(orderId){
-            window.location.hash=''
-            window.history.pushState({},'',`/orders?order=${encodeURIComponent(orderId)}`)
-            window.dispatchEvent(new PopStateEvent('popstate'))
-          }
-        })
-
-        let permission=await PushNotifications.checkPermissions()
-
-        if(permission.receive==='prompt'){
-          permission=await PushNotifications.requestPermissions()
-        }
-
-        if(permission.receive!=='granted'){
-          console.log('Push notifications permission not granted')
-          return
-        }
-
-        await PushNotifications.register()
-      }catch(error){
-        console.error('Push setup error',error)
-      }
-    }
-
-    setup()
-
-    return()=>{
-      disposed=true
-      registrationListener?.remove?.()
-      registrationErrorListener?.remove?.()
-      actionListener?.remove?.()
-    }
-  },[auth?.user?.id])
-}
-
 function App(){
-  useEffect(()=>{
-    if(!Capacitor.isNativePlatform())return
-
-    const timer=setTimeout(()=>{
-      SplashScreen.hide().catch(()=>{})
-    },1500)
-
-    return()=>clearTimeout(timer)
-  },[])
-
   const auth=useAuth()
-  usePushNotifications(auth)
-  const location=useLocation()
-  const nav=useNavigate()
-
-  useEffect(()=>{
-    if(!Capacitor.isNativePlatform()||!supabase)return
-
-    let listener
-    let disposed=false
-    const consumedKey='kyo-native-oauth-consumed-v1'
-
-    const handleOAuthUrl=async ({url},source='listener')=>{
-      if(disposed||!url||!url.startsWith('mx.kyosushi.app://'))return
-
-      // getLaunchUrl can keep returning the same OAuth callback while the
-      // native app is alive. Consume it only once to avoid an auth/navigation loop.
-      if(sessionStorage.getItem(consumedKey)==='1')return
-      sessionStorage.setItem(consumedKey,'1')
-
-      try{
-        if(source==='listener'){
-          Browser.close().catch(()=>{})
-        }
-
-        const parsed=new URL(url)
-        const code=parsed.searchParams.get('code')
-
-        if(code){
-          const {error}=await supabase.auth.exchangeCodeForSession(code)
-          if(error)throw error
-        }else{
-          const hashParams=new URLSearchParams((parsed.hash||'').replace(/^#/,''))
-          const access_token=hashParams.get('access_token')
-          const refresh_token=hashParams.get('refresh_token')
-
-          if(!access_token||!refresh_token){
-            throw new Error('El regreso de Google no incluyó una sesión válida.')
-          }
-
-          const {error}=await supabase.auth.setSession({access_token,refresh_token})
-          if(error)throw error
-        }
-
-        nav('/complete-profile',{replace:true})
-      }catch(error){
-        console.error('Google OAuth callback error',error)
-        sessionStorage.removeItem(consumedKey)
-        nav('/login?oauth_error=1',{replace:true})
-      }
-    }
-
-    CapacitorApp.addListener('appUrlOpen',payload=>{
-      handleOAuthUrl(payload,'listener')
-    }).then(value=>{
-      listener=value
-    })
-
-    CapacitorApp.getLaunchUrl().then(result=>{
-      if(result?.url)handleOAuthUrl({url:result.url},'launch')
-    }).catch(()=>{})
-
-    return()=>{
-      disposed=true
-      listener?.remove?.()
-    }
-  },[nav])
-
   const catalog=useCatalog()
   const addressBook=useAddresses(auth)
-  const [guestMode,setGuestMode]=useState(false)
   const [cart,setCart]=usePersistedState('kyo-cart-v3',[])
   const [configuring,setConfiguring]=useState(null)
   const [destination,setDestination]=usePersistedState('kyo-destination-v1',{mode:'pickup',branchId:'zakia',addressId:null})
   const cartCount=cart.reduce((a,i)=>a+i.qty,0)
-  const rawCartTotal=cart.reduce((a,i)=>a+Number(i.price)*i.qty,0)
-  const [serverPromoDay,setServerPromoDay]=useState(null)
-  const promoPreview=promo3x2Preview(cart,catalog.settings,serverPromoDay)
-  const cartTotal=Math.max(0,rawCartTotal-promoPreview.discount)
+  const cartRawTotal=cart.reduce((a,i)=>a+Number(i.price)*i.qty,0)
+  const promo=usePromo3x2(cart)
+  const cartTotal=Math.max(0,cartRawTotal-Number(promo.discount||0))
   const selectedAddress=addressBook.addresses.find(a=>a.id===destination.addressId)||null
   const branchId=destination.mode==='delivery' && selectedAddress ? selectedAddress.branch_id : destination.branchId
   const branch=catalog.branches.find(b=>b.id===branchId)||catalog.branches[0]||fallbackBranches[0]
   const [storeClockTick,setStoreClockTick]=useState(0)
-  useEffect(()=>{
-    if(!supabase)return
-    let alive=true
-    supabase.rpc('get_3x2_promo_status').then(({data,error})=>{
-      if(!alive||error||!data)return
-      const row=Array.isArray(data)?data[0]:data
-      if(row?.server_day)setServerPromoDay(row.server_day)
-      else if(row?.day)setServerPromoDay(row.day)
-    }).catch(()=>{})
-    return()=>{alive=false}
-  },[catalog.settings?.promo_3x2_enabled,catalog.settings?.promo_3x2_days?.join?.(',')])
   const storeStatus=useMemo(()=>{
     const hours=catalog.settings?.business_hours
     if(catalog.loading||!hours)return {ready:false,open:false,day:null,time:null,today:null}
@@ -500,21 +294,7 @@ function App(){
     }
     setCart(prev=>prev.map(i=>(i.cartLineId||i.id)===id?{...i,qty:i.qty+delta}:i).filter(i=>i.qty>0))
   }
-  const shared={auth,catalog,addressBook,destination,setDestination,selectedAddress,branch,storeStatus,promoPreview,rawCartTotal,serverPromoDay}
-
-  const authRoute=['/login','/reset-password','/complete-profile','/legal','/privacy','/terms']
-    .some(path=>location.pathname.startsWith(path))
-
-  if(auth.loading){
-    return <main className="auth-page">
-      <div className="google-complete-loading">Preparando KYO…</div>
-    </main>
-  }
-
-  if(!auth.user && !guestMode && !authRoute){
-    return <WelcomeAuthGate onGuest={()=>setGuestMode(true)}/>
-  }
-
+  const shared={auth,catalog,addressBook,destination,setDestination,selectedAddress,branch,storeStatus,promo}
   return <div className="app-shell"><ScrollToTop/><ConnectionBanner/>
     <Routes>
       <Route path="/" element={<HomePage {...shared} add={add} cartCount={cartCount}/>}/>
@@ -530,8 +310,8 @@ function App(){
       <Route path="/legal" element={<LegalPage/>}/>
       <Route path="/privacy" element={<PrivacyPage/>}/>
       <Route path="/terms" element={<TermsPage/>}/>
-      <Route path="/cart" element={<CartPage cart={cart} update={update} total={cartTotal} rawTotal={rawCartTotal} promoPreview={promoPreview} destination={destination} selectedAddress={selectedAddress} branch={branch} catalog={catalog} storeStatus={storeStatus}/>}/>
-      <Route path="/checkout" element={<CheckoutPage cart={cart} total={cartTotal} rawTotal={rawCartTotal} promoPreview={promoPreview} setCart={setCart} {...shared}/>}/>
+      <Route path="/cart" element={<CartPage cart={cart} update={update} total={cartTotal} rawTotal={cartRawTotal} promo={promo} destination={destination} selectedAddress={selectedAddress} branch={branch} catalog={catalog} storeStatus={storeStatus}/>}/>
+      <Route path="/checkout" element={<CheckoutPage cart={cart} total={cartTotal} rawTotal={cartRawTotal} promo={promo} setCart={setCart} {...shared}/>}/>
       <Route path="/success" element={<SuccessPage setCart={setCart}/>}/>
 
 
@@ -540,199 +320,6 @@ function App(){
     {configuring&&<ProductCustomizeModal product={configuring} branchId={branchId} onClose={()=>setConfiguring(null)} onAdd={addConfigured}/>}
     <BottomNav auth={auth}/>
   </div>
-}
-
-
-function WelcomeAuthGate({onGuest}){
-  const nav=useNavigate()
-
-  return <main className="auth-page kyo-welcome-page">
-    <style>{`
-      .kyo-welcome-page{
-        min-height:100dvh;
-        width:100%;
-        display:flex;
-        flex-direction:column;
-        justify-content:center;
-        align-items:center;
-        box-sizing:border-box;
-        padding:calc(28px + env(safe-area-inset-top)) 20px calc(28px + env(safe-area-inset-bottom));
-        background:
-          radial-gradient(circle at 50% 5%, rgba(242,104,45,.13), transparent 34%),
-          linear-gradient(180deg,#111 0%,#171717 38%,#f5f3ef 38%,#f5f3ef 100%);
-        overflow-x:hidden;
-      }
-      .kyo-welcome-page .auth-brand{
-        width:min(100%,430px);
-        margin:0 auto 24px;
-        text-align:center;
-        color:#fff;
-        align-self:center;
-      }
-      .kyo-welcome-page .auth-brand .brand{margin:0 auto 12px}
-      .kyo-welcome-page .auth-brand p{
-        margin:8px 0 0;
-        opacity:.78;
-        font-size:14px;
-        letter-spacing:.02em;
-      }
-      .kyo-welcome-card{
-        width:min(100%,430px);
-        max-width:430px;
-        margin:0 auto;
-        padding:26px 22px 22px;
-        box-sizing:border-box;
-        border-radius:26px;
-        background:#fff;
-        box-shadow:0 24px 60px rgba(0,0,0,.22);
-        border:1px solid rgba(20,20,20,.06);
-        align-self:center;
-      }
-      .kyo-welcome-card .google-complete-head{
-        margin-bottom:22px;
-        text-align:left;
-      }
-      .kyo-welcome-card .google-complete-head h2{
-        margin:7px 0 8px;
-        font-size:28px;
-        line-height:1.08;
-      }
-      .kyo-welcome-card .google-complete-head p{
-        margin:0;
-        color:#666;
-        line-height:1.5;
-      }
-      .kyo-welcome-actions{
-        display:flex;
-        flex-direction:column;
-        gap:14px;
-      }
-      .kyo-welcome-actions button{
-        width:100%;
-        min-height:54px;
-        border-radius:15px;
-        font-size:16px;
-        font-weight:750;
-        margin:0 !important;
-      }
-      .kyo-create-account-btn{
-        background:#fff !important;
-        color:#171717 !important;
-        border:1.5px solid #d8d5d0 !important;
-        box-shadow:none !important;
-      }
-      .kyo-welcome-actions .google-auth-btn{
-        min-height:54px;
-        justify-content:center;
-        margin-top:2px !important;
-        border:1.5px solid #ddd !important;
-        background:#fff;
-      }
-      .kyo-welcome-actions .google-auth-btn svg{
-        width:21px;
-        height:21px;
-        flex:0 0 21px;
-      }
-      .kyo-welcome-actions .apple-auth-btn{
-        min-height:54px;
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        gap:10px;
-        margin-top:0 !important;
-        border:1.5px solid #111 !important;
-        background:#111 !important;
-        color:#fff !important;
-      }
-      .kyo-welcome-actions .apple-auth-btn .apple-mark{
-        font-size:24px;
-        line-height:1;
-        font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Arial,sans-serif;
-        transform:translateY(-1px);
-      }
-      .kyo-guest-separator{
-        display:flex;
-        align-items:center;
-        gap:12px;
-        margin:8px 0 0;
-        color:#9a9690;
-        font-size:12px;
-        font-weight:700;
-        text-transform:uppercase;
-        letter-spacing:.08em;
-      }
-      .kyo-guest-separator:before,
-      .kyo-guest-separator:after{
-        content:"";
-        height:1px;
-        flex:1;
-        background:#e7e3dd;
-      }
-      .kyo-guest-btn{
-        min-height:48px !important;
-        color:#4f4c48 !important;
-        background:transparent !important;
-        border:none !important;
-        box-shadow:none !important;
-      }
-      .kyo-welcome-note{
-        display:block;
-        margin-top:14px;
-        text-align:center;
-        color:#8a8782;
-        font-size:12px;
-        line-height:1.45;
-      }
-    `}</style>
-
-    <div className="auth-brand">
-      <Brand/>
-      <p>Tu KYO. Tus rewards. Tu pedido.</p>
-    </div>
-
-    <section className="auth-card kyo-welcome-card">
-      <div className="google-complete-head">
-        <span className="eyebrow dark">BIENVENIDO A KYO</span>
-        <h2>¿Cómo quieres continuar?</h2>
-        <p>Inicia sesión para guardar tus pedidos, direcciones y KYO Rewards.</p>
-      </div>
-
-      <div className="kyo-welcome-actions">
-        <button type="button" className="primary full" onClick={()=>nav('/login')}>
-          Iniciar sesión
-        </button>
-
-        <button type="button" className="secondary full kyo-create-account-btn" onClick={()=>nav('/login?mode=register')}>
-          Crear cuenta
-        </button>
-
-        <button type="button" className="google-auth-btn" onClick={()=>nav('/login?google=1')}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.39-.18-2.05H12v3.88h5.38a4.6 4.6 0 0 1-2 3.02v2.52h3.24c1.9-1.75 2.98-4.33 2.98-7.37Z"/>
-            <path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.62-2.4l-3.24-2.52c-.9.6-2.05.96-3.38.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.6A10 10 0 0 0 12 22Z"/>
-            <path fill="#FBBC05" d="M6.39 13.91A6.02 6.02 0 0 1 6.07 12c0-.66.11-1.3.32-1.91v-2.6H3.04A10 10 0 0 0 2 12c0 1.61.38 3.14 1.04 4.51l3.35-2.6Z"/>
-            <path fill="#EA4335" d="M12 5.96c1.47 0 2.78.5 3.81 1.49l2.86-2.86A9.58 9.58 0 0 0 12 2a10 10 0 0 0-8.96 5.49l3.35 2.6C7.18 7.72 9.39 5.96 12 5.96Z"/>
-          </svg>
-          <span>Continuar con Google</span>
-        </button>
-
-        {Capacitor.getPlatform()==='ios'&&<button type="button" className="apple-auth-btn" onClick={()=>nav('/login?apple=1')}>
-          <span className="apple-mark" aria-hidden="true"></span>
-          <span>Continuar con Apple</span>
-        </button>}
-
-        <div className="kyo-guest-separator"><span>o continúa sin cuenta</span></div>
-
-        <button type="button" className="kyo-guest-btn" onClick={onGuest}>
-          Navegar como invitado
-        </button>
-      </div>
-
-      <small className="kyo-welcome-note">
-        Como invitado puedes explorar el menú y armar tu carrito. Para completar un pedido o usar Rewards tendrás que iniciar sesión.
-      </small>
-    </section>
-  </main>
 }
 
 function Brand(){return <div className="brand"><img className="brand-logo-img" src="/assets/logo.png?v=3" alt="KYO Sushi"/></div>}
@@ -781,20 +368,18 @@ function BottomNav({auth}){
 
   if(['/login','/checkout','/success'].some(p=>loc.pathname.startsWith(p)))return null
 
-  return <div className="bottom-nav-dock">
-    <nav className="bottom-nav" aria-label="Navegación principal">
-      {[['/',Home,'Inicio'],['/menu',BookOpen,'Menú'],['/rewards',Gift,'Rewards'],['/orders',ShoppingBag,'Pedidos'],['/profile',User,'Perfil']].map(([to,Icon,label])=>
-        <NavLink key={to} to={to} end={to==='/' } className={({isActive})=>isActive?'active':''}>
-          <Icon size={21}/>
-          <span>{label}</span>
-          {to==='/orders'&&hasActiveOrder?<b className="active-order-dot" aria-label="Tienes un pedido activo"/>:null}
-        </NavLink>
-      )}
-    </nav>
-  </div>
+  return <nav className="bottom-nav">
+    {[['/',Home,'Inicio'],['/menu',BookOpen,'Menú'],['/rewards',Gift,'Rewards'],['/orders',ShoppingBag,'Pedidos'],['/profile',User,'Perfil']].map(([to,Icon,label])=>
+      <NavLink key={to} to={to} end={to==='/' } className={({isActive})=>isActive?'active':''}>
+        <Icon size={21}/>
+        <span>{label}</span>
+        {to==='/orders'&&hasActiveOrder?<b className="active-order-dot" aria-label="Tienes un pedido activo"/>:null}
+      </NavLink>
+    )}
+  </nav>
 }
 
-function HomePage({auth,catalog,addressBook,destination,setDestination,selectedAddress,add,cartCount,storeStatus,promoPreview,serverPromoDay}){const nav=useNavigate();const featured=catalog.products.filter(p=>p.featured&&p.available!==false).slice(0,6);const branch=catalog.branches.find(b=>b.id===(selectedAddress?.branch_id||destination.branchId))||catalog.branches[0];return <main><Header auth={auth} catalog={catalog} addressBook={addressBook} destination={destination} setDestination={setDestination} selectedAddress={selectedAddress}/>{storeStatus?.ready&&!storeStatus?.open&&<StoreClosedBanner hours={catalog.settings?.business_hours}/>}<section className="hero"><div className="hero-copy"><span className="hero-location-tag">ZÁKIA · MILENIO</span><span className="eyebrow">KYO A TU MANERA</span><h1>Tu sushi favorito,<br/><em>más cerca de ti.</em></h1><p>Pide directo, acumula KYO Points y recibe beneficios exclusivos.</p><button className="primary" onClick={()=>nav('/menu')}>Ordenar ahora <ChevronRight size={18}/></button></div><div className="hero-art"><div className="red-orb"></div><img src="/assets/menu/ebi-crispy-ramen.jpg" alt="Ramen KYO"/></div></section><section className="quick-row"><div><Bike/><span><strong>Delivery</strong><small className="quick-time">{branch?.eta||'35–50 min'}</small></span></div><div><Store/><span><strong>Pickup</strong><small className="quick-time">20–30 min</small></span></div><div><Gift/><span><strong>Rewards</strong><small className="quick-time">1 punto por cada $10</small></span></div></section>{promo3x2Config(catalog.settings).enabled&&<section className={`promo-3x2-home ${promoPreview?.active?'active':''}`}><div><small>PROMO KYO</small><strong>3×2 en productos seleccionados</strong><span>{promoPreview?.active?'Activa hoy · mezcla rollos, ramenes y pokes participantes':'Consulta los días activos y productos participantes'}</span></div><button onClick={()=>nav('/menu?category=3x2')}>Ver participantes <ChevronRight size={17}/></button></section>}<section className="section"><div className="section-head"><div><span className="eyebrow dark">LOS MÁS PEDIDOS</span><h2>Favoritos de KYO</h2></div><button className="text-btn" onClick={()=>nav('/menu')}>Ver todo <ChevronRight size={17}/></button></div><div className="product-scroller">{featured.map(p=><ProductCard key={p.id} p={p} add={add} branchId={branch?.id} storeOpen={storeStatus?.open} storeReady={storeStatus?.ready} promoActive={promoPreview?.active}/>)}</div></section><section className="reward-banner"><div><span className="reward-icon"><Sparkles/></span><span><small>KYO REWARDS</small><strong>Come rico. Gana puntos.<br/>Recibe más KYO.</strong></span></div><button onClick={()=>nav('/rewards')}>Ver mis beneficios</button></section><footer className="home-legal-footer home-legal-footer-rich">
+function HomePage({auth,catalog,addressBook,destination,setDestination,selectedAddress,add,cartCount,storeStatus,promo}){const nav=useNavigate();const featured=catalog.products.filter(p=>p.featured&&p.available!==false).slice(0,6);const branch=catalog.branches.find(b=>b.id===(selectedAddress?.branch_id||destination.branchId))||catalog.branches[0];return <main><Header auth={auth} catalog={catalog} addressBook={addressBook} destination={destination} setDestination={setDestination} selectedAddress={selectedAddress}/>{storeStatus?.ready&&!storeStatus?.open&&<StoreClosedBanner hours={catalog.settings?.business_hours}/>}<section className="hero"><div className="hero-copy"><span className="hero-location-tag">ZÁKIA · MILENIO</span><span className="eyebrow">KYO A TU MANERA</span><h1>Tu sushi favorito,<br/><em>más cerca de ti.</em></h1><p>Pide directo, acumula KYO Points y recibe beneficios exclusivos.</p><button className="primary" onClick={()=>nav('/menu')}>Ordenar ahora <ChevronRight size={18}/></button></div><div className="hero-art"><div className="red-orb"></div><img src="/assets/menu/ebi-crispy-ramen.jpg" alt="Ramen KYO"/></div></section><section className="quick-row"><div><Bike/><span><strong>Delivery</strong><small className="quick-time">{branch?.eta||'35–50 min'}</small></span></div><div><Store/><span><strong>Pickup</strong><small className="quick-time">20–30 min</small></span></div><div><Gift/><span><strong>Rewards</strong><small className="quick-time">1 punto por cada $10</small></span></div></section>{promo?.enabled&&<section className={`promo-3x2-home ${promo.active?'active':''}`}><div><span className="promo-3x2-kicker">PROMO 3×2</span><h2>Combina rollos, ramen y pokes participantes</h2><p>{promo.active?'Hoy está activa: agrega 3 participantes y el de menor precio va por cuenta de KYO.':`Disponible ${promoDaysText(promo.days)}. Los días se validan en línea.`}</p></div><button onClick={()=>nav('/menu?category=3x2')}>{promo.active?'Aprovechar 3×2':'Ver participantes'} <ChevronRight size={17}/></button></section>}<section className="section"><div className="section-head"><div><span className="eyebrow dark">LOS MÁS PEDIDOS</span><h2>Favoritos de KYO</h2></div><button className="text-btn" onClick={()=>nav('/menu')}>Ver todo <ChevronRight size={17}/></button></div><div className="product-scroller">{featured.map(p=><ProductCard key={p.id} p={p} add={add} branchId={branch?.id} storeOpen={storeStatus?.open} storeReady={storeStatus?.ready} promoActive={promo?.active}/>)}</div></section><section className="reward-banner"><div><span className="reward-icon"><Sparkles/></span><span><small>KYO REWARDS</small><strong>Come rico. Gana puntos.<br/>Recibe más KYO.</strong></span></div><button onClick={()=>nav('/rewards')}>Ver mis beneficios</button></section><footer className="home-legal-footer home-legal-footer-rich">
   <div className="home-footer-about">
     <strong>KYO Sushi</strong>
     <p>KYO Sushi es la aplicación oficial para consultar nuestro menú, realizar pedidos de delivery o pickup, guardar direcciones, seguir el estado de tus pedidos y acumular o canjear beneficios de KYO Rewards.</p>
@@ -849,17 +434,17 @@ function LazyProductImage({src,alt}){
   </div>
 }
 
-function ProductCard({p,add,branchId,storeOpen=true,storeReady=true,promoActive=false}){const branchUnavailable=branchId&&p.branchAvailability?.[branchId]===false;const storeClosed=storeReady&&!storeOpen;const scheduleLoading=!storeReady;return <article className={`product-card ${branchUnavailable||storeClosed?'branch-unavailable':''}`}><div className="product-img"><LazyProductImage src={p.image||p.image_url} alt={p.name}/>{p.spicy&&<span className="spicy"><Flame size={13}/> Spicy</span>}{p.promo_3x2_eligible&&<span className={`promo-3x2-badge ${promoActive?'today':''}`}>{promoActive?'3×2 HOY':'PARTICIPA EN 3×2'}</span>}{(branchUnavailable||storeClosed)&&<span className="branch-soldout">{storeClosed?'Cerrado ahora':'No disponible aquí'}</span>}</div><div className="product-body"><small>{p.category}</small><h3>{p.name}</h3><p>{p.desc||p.description}</p><div><strong>{productDisplayPrice(p)}</strong><button className="add-btn" disabled={branchUnavailable||storeClosed||scheduleLoading} onClick={()=>!branchUnavailable&&!storeClosed&&!scheduleLoading&&add(p)} aria-label={`Agregar ${p.name}`}><Plus/></button></div></div></article>}
+function ProductCard({p,add,branchId,storeOpen=true,storeReady=true,promoActive=false}){const branchUnavailable=branchId&&p.branchAvailability?.[branchId]===false;const storeClosed=storeReady&&!storeOpen;const scheduleLoading=!storeReady;return <article className={`product-card ${branchUnavailable||storeClosed?'branch-unavailable':''} ${p.promo_3x2_eligible?'promo-eligible':''}`}><div className="product-img"><LazyProductImage src={p.image||p.image_url} alt={p.name}/>{p.spicy&&<span className="spicy"><Flame size={13}/> Spicy</span>}{p.promo_3x2_eligible&&<span className={`promo-product-badge ${promoActive?'active':''}`}>{promoActive?'3×2 HOY':'Participa en 3×2'}</span>}{(branchUnavailable||storeClosed)&&<span className="branch-soldout">{storeClosed?'Cerrado ahora':'No disponible aquí'}</span>}</div><div className="product-body"><small>{p.category}</small><h3>{p.name}</h3><p>{p.desc||p.description}</p>{p.promo_3x2_eligible&&<div className="promo-product-note">Combínalo con otros participantes · el más barato gratis</div>}<div><strong>{productDisplayPrice(p)}</strong><button className="add-btn" disabled={branchUnavailable||storeClosed||scheduleLoading} onClick={()=>!branchUnavailable&&!storeClosed&&!scheduleLoading&&add(p)} aria-label={`Agregar ${p.name}`}><Plus/></button></div></div></article>}
 
 function MenuPage(props){
-  const {auth,catalog,addressBook,destination,setDestination,selectedAddress,add,cartCount,branch,storeStatus,serverPromoDay}=props
-  const nav=useNavigate();const [params]=useSearchParams();const [cat,setCat]=useState(['3x2','3×2'].includes(params.get('category'))?'3×2':(params.get('category')||'Favoritos'));const [subcat,setSubcat]=useState('Todos');const [q,setQ]=useState('')
-  const categoryList=['Favoritos',...(promo3x2Config(catalog.settings).enabled?['3×2']:[]),...catalog.categories]
+  const {auth,catalog,addressBook,destination,setDestination,selectedAddress,add,cartCount,branch,storeStatus}=props
+  const nav=useNavigate();const [params]=useSearchParams();const [cat,setCat]=useState(params.get('category')||'Favoritos');const [subcat,setSubcat]=useState('Todos');const [q,setQ]=useState('')
+  const categoryList=['Favoritos',...(catalog.products.some(p=>p.promo_3x2_eligible)?['3x2']:[]),...catalog.categories]
   const activeCategory=catalog.categoryObjects?.find(c=>!c.parent_id&&c.name===cat)
   const subcategories=(catalog.categoryObjects||[]).filter(c=>activeCategory&&c.parent_id===activeCategory.id).sort((a,b)=>a.sort_order-b.sort_order)
   useEffect(()=>{setSubcat('Todos')},[cat])
-  const shown=useMemo(()=>catalog.products.filter(p=>p.available!==false).filter(p=>cat==='Favoritos'?p.featured:cat==='3×2'?p.promo_3x2_eligible:p.category===cat).filter(p=>subcat==='Todos'||p.subcategory===subcat).filter(p=>(p.name+' '+(p.desc||'')).toLowerCase().includes(q.toLowerCase())),[catalog.products,cat,subcat,q])
-  return <main><Header auth={auth} catalog={catalog} addressBook={addressBook} destination={destination} setDestination={setDestination} selectedAddress={selectedAddress}/>{storeStatus?.ready&&!storeStatus?.open&&<StoreClosedBanner hours={catalog.settings?.business_hours}/>}<section className="menu-head"><span className="eyebrow dark">MENÚ KYO</span><h1>¿Qué se te antoja?</h1><div className="search-box"><Search/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar ramen, rollos, entradas..."/></div></section><div className="cat-tabs">{categoryList.map(c=><button key={c} className={cat===c?'active':''} onClick={()=>setCat(c)}>{c}</button>)}</div>{subcategories.length>0&&<div className="subcat-tabs"><button className={subcat==='Todos'?'active':''} onClick={()=>setSubcat('Todos')}>Todos</button>{subcategories.map(s=><button key={s.id} className={subcat===s.name?'active':''} onClick={()=>setSubcat(s.name)}>{s.name}</button>)}</div>}{catalog.loading?<div className="loading-state"><RefreshCw className="spin"/> Cargando menú...</div>:<section className="menu-grid">{shown.map(p=><ProductCard key={p.id} p={p} add={add} branchId={branch?.id} storeOpen={storeStatus?.open} storeReady={storeStatus?.ready} promoActive={promo3x2Preview([],catalog.settings,serverPromoDay).active}/>)}</section>}{shown.length===0&&!catalog.loading&&<EmptyState icon={<Search/>} title="No encontramos productos" text="Prueba otra categoría o búsqueda." button="Ver favoritos" onClick={()=>setCat('Favoritos')}/>} {cartCount>0&&<button className="floating-cart" onClick={()=>nav('/cart')}><ShoppingBag size={20}/><span>Ver carrito</span><b>{cartCount}</b></button>}</main>
+  const shown=useMemo(()=>catalog.products.filter(p=>p.available!==false).filter(p=>cat==='Favoritos'?p.featured:cat==='3x2'?p.promo_3x2_eligible:p.category===cat).filter(p=>subcat==='Todos'||p.subcategory===subcat).filter(p=>(p.name+' '+(p.desc||'')).toLowerCase().includes(q.toLowerCase())),[catalog.products,cat,subcat,q])
+  return <main><Header auth={auth} catalog={catalog} addressBook={addressBook} destination={destination} setDestination={setDestination} selectedAddress={selectedAddress}/>{storeStatus?.ready&&!storeStatus?.open&&<StoreClosedBanner hours={catalog.settings?.business_hours}/>}<section className="menu-head"><span className="eyebrow dark">MENÚ KYO</span><h1>¿Qué se te antoja?</h1><div className="search-box"><Search/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar ramen, rollos, entradas..."/></div></section>{props.promo?.enabled&&<div className={`promo-3x2-menu-strip ${props.promo.active?'active':''}`}><div><b>3×2 KYO</b><span>{props.promo.active?'ACTIVA HOY':`Días: ${promoDaysText(props.promo.days)}`}</span></div><p>Agrega 3 productos participantes, incluso mezclando categorías. El producto participante de menor precio se descuenta automáticamente. Extras y personalizaciones conservan su precio.</p></div>}<div className="cat-tabs">{categoryList.map(c=><button key={c} className={`${cat===c?'active':''} ${c==='3x2'?'promo-tab':''}`} onClick={()=>setCat(c)}>{c==='3x2'?'3×2':c}</button>)}</div>{subcategories.length>0&&<div className="subcat-tabs"><button className={subcat==='Todos'?'active':''} onClick={()=>setSubcat('Todos')}>Todos</button>{subcategories.map(s=><button key={s.id} className={subcat===s.name?'active':''} onClick={()=>setSubcat(s.name)}>{s.name}</button>)}</div>}{catalog.loading?<div className="loading-state"><RefreshCw className="spin"/> Cargando menú...</div>:<section className="menu-grid">{shown.map(p=><ProductCard key={p.id} p={p} add={add} branchId={branch?.id} storeOpen={storeStatus?.open} storeReady={storeStatus?.ready} promoActive={props.promo?.active}/>)}</section>}{shown.length===0&&!catalog.loading&&<EmptyState icon={<Search/>} title="No encontramos productos" text="Prueba otra categoría o búsqueda." button="Ver favoritos" onClick={()=>setCat('Favoritos')}/>} {cartCount>0&&<button className="floating-cart" onClick={()=>nav('/cart')}><ShoppingBag size={20}/><span>Ver carrito</span><b>{cartCount}</b></button>}</main>
 }
 function ProductCustomizeModal({product,branchId,onClose,onAdd,rewardFree=false,actionLabel='Agregar al carrito'}){
   const templates=product.customizations||[]
@@ -905,8 +490,7 @@ const phoneCountries=[
 
 function LoginPage({auth}){
   const nav=useNavigate()
-  const [params]=useSearchParams()
-  const [mode,setMode]=useState(params.get('mode')==='register'?'register':'login')
+  const [mode,setMode]=useState('login')
   const [name,setName]=useState('')
   const [countryCode,setCountryCode]=useState('+52')
   const [phone,setPhone]=useState('')
@@ -917,121 +501,27 @@ function LoginPage({auth}){
   const [busy,setBusy]=useState(false)
   const [acceptedTerms,setAcceptedTerms]=useState(false)
 
-  useEffect(()=>{
-    if(params.get('oauth_error')==='1'){
-      setError('No pudimos completar el acceso. Inténtalo nuevamente.')
-    }
-  },[params])
-
-  useEffect(()=>{if(auth.user&&params.get('google')!=='1'&&params.get('apple')!=='1')nav('/',{replace:true})},[auth.user])
-  const googleAutoStarted=useRef(false)
-  const appleAutoStarted=useRef(false)
+  useEffect(()=>{if(auth.user)nav('/',{replace:true})},[auth.user])
 
   const continueWithGoogle=async()=>{
     setError('')
     if(!supabase){setError('Falta configurar Supabase.');return}
 
     setBusy(true)
-
-    try{
-      const isNative=Capacitor.isNativePlatform()
-      if(isNative){
-        sessionStorage.removeItem('kyo-native-oauth-consumed-v1')
+    const redirectTo=`${window.location.origin}/complete-profile`
+    const {error:e}=await supabase.auth.signInWithOAuth({
+      provider:'google',
+      options:{
+        redirectTo,
+        queryParams:{prompt:'select_account'}
       }
-      const redirectTo=isNative
-        ?'mx.kyosushi.app://complete-profile'
-        :`${window.location.origin}/complete-profile`
+    })
 
-      const {data,error:e}=await supabase.auth.signInWithOAuth({
-        provider:'google',
-        options:{
-          redirectTo,
-          skipBrowserRedirect:isNative,
-          queryParams:{prompt:'select_account'}
-        }
-      })
-
-      if(e)throw e
-
-      if(isNative){
-        if(!data?.url)throw new Error('No se recibió la URL de autenticación de Google.')
-        await Browser.open({
-          url:data.url,
-          presentationStyle:'popover'
-        })
-      }
-    }catch(e){
+    if(e){
       setBusy(false)
       setError(friendlyError(e,'login'))
     }
   }
-
-  useEffect(()=>{
-    if(params.get('google')!=='1'||googleAutoStarted.current)return
-    googleAutoStarted.current=true
-    continueWithGoogle()
-  },[])
-
-  const continueWithApple=async()=>{
-    setError('')
-    if(!supabase){setError('Falta configurar Supabase.');return}
-    if(Capacitor.getPlatform()!=='ios'){
-      setError('Continuar con Apple está disponible en la app para iPhone.')
-      return
-    }
-
-    setBusy(true)
-    try{
-      const result=await SignInWithApple.authorize({
-        clientId:'mx.kyosushi.app',
-        redirectURI:'',
-        scopes:'email name',
-        state:newRequestId()
-      })
-
-      const identityToken=result?.response?.identityToken
-      if(!identityToken)throw new Error('Apple no devolvió un token de identidad.')
-
-      const {data,error:e}=await supabase.auth.signInWithIdToken({
-        provider:'apple',
-        token:identityToken
-      })
-      if(e)throw e
-
-      // Apple only returns the person's name the first time they authorize the app.
-      // Preserve it immediately in Supabase metadata so the complete-profile screen can use it.
-      const givenName=String(result?.response?.givenName||'').trim()
-      const familyName=String(result?.response?.familyName||'').trim()
-      const appleName=[givenName,familyName].filter(Boolean).join(' ').trim()
-      if(appleName && data?.user){
-        const currentName=data.user.user_metadata?.full_name||data.user.user_metadata?.name
-        if(!currentName){
-          const {error:updateError}=await supabase.auth.updateUser({
-            data:{full_name:appleName,name:appleName}
-          })
-          if(updateError)console.error('Apple name save error',updateError)
-        }
-      }
-
-      nav('/complete-profile',{replace:true})
-    }catch(e){
-      const code=String(e?.code||'').toLowerCase()
-      const message=String(e?.message||e||'').toLowerCase()
-      const cancelled=code.includes('cancel')||message.includes('cancel')||message.includes('1001')
-      if(!cancelled){
-        console.error('Apple sign-in error',e)
-        setError(friendlyError(e,'login'))
-      }
-    }finally{
-      setBusy(false)
-    }
-  }
-
-  useEffect(()=>{
-    if(params.get('apple')!=='1'||appleAutoStarted.current)return
-    appleAutoStarted.current=true
-    continueWithApple()
-  },[])
 
   const submit=async e=>{
     e.preventDefault();setError('')
@@ -1061,30 +551,6 @@ function LoginPage({auth}){
     <button className="back" onClick={()=>nav(-1)}><ArrowLeft/></button>
     <div className="auth-brand"><Brand/><p>Tu KYO. Tus rewards. Tu pedido.</p></div>
     <form className="auth-card" onSubmit={submit}>
-      <style>{`
-        .auth-card .apple-auth-btn{
-          width:100%;
-          min-height:52px;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          gap:10px;
-          margin-top:10px;
-          border:1px solid #111;
-          border-radius:14px;
-          background:#111;
-          color:#fff;
-          font-size:15px;
-          font-weight:750;
-        }
-        .auth-card .apple-auth-btn:disabled{opacity:.6}
-        .auth-card .apple-auth-btn .apple-mark{
-          font-size:23px;
-          line-height:1;
-          font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Arial,sans-serif;
-          transform:translateY(-1px);
-        }
-      `}</style>
       <div className="auth-tabs">
         <button type="button" className={mode==='login'?'active':''} onClick={()=>{setMode('login');setError('')}}>Iniciar sesión</button>
         <button type="button" className={mode==='register'?'active':''} onClick={()=>{setMode('register');setError('')}}>Crear cuenta</button>
@@ -1099,11 +565,6 @@ function LoginPage({auth}){
         </svg>
         <span>{mode==='login'?'Continuar con Google':'Registrarme con Google'}</span>
       </button>
-
-      {Capacitor.getPlatform()==='ios'&&<button type="button" className="apple-auth-btn" disabled={busy} onClick={continueWithApple}>
-        <span className="apple-mark" aria-hidden="true"></span>
-        <span>{mode==='login'?'Continuar con Apple':'Registrarme con Apple'}</span>
-      </button>}
 
       <div className="auth-divider"><span>o continúa con correo</span></div>
 
@@ -1134,7 +595,7 @@ function LoginPage({auth}){
       <label>Contraseña<input type="password" minLength="6" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••"/></label>
       {mode==='register'&&<label>Confirmar contraseña<input type="password" minLength="6" required value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} placeholder="••••••••"/></label>}
       {mode==='login'&&<button type="button" className="forgot-password-link" onClick={()=>nav('/reset-password')}>¿Olvidaste tu contraseña?</button>}
-      {mode==='register'&&<label className="legal-consent"><input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)}/><span>Acepto los <button type="button" onClick={()=>window.open('/terms','_blank')}>Términos y Condiciones</button> y la <button type="button" onClick={()=>window.open('/privacy','_blank')}>Política de Privacidad</button>. También aplica si me registro con Google o Apple.</span></label>}
+      {mode==='register'&&<label className="legal-consent"><input type="checkbox" checked={acceptedTerms} onChange={e=>setAcceptedTerms(e.target.checked)}/><span>Acepto los <button type="button" onClick={()=>window.open('/terms','_blank')}>Términos y Condiciones</button> y la <button type="button" onClick={()=>window.open('/privacy','_blank')}>Política de Privacidad</button>. También aplica si me registro con Google.</span></label>}
       {error&&<div className="form-message">{error}</div>}
       <button disabled={busy} className="primary full">{busy?'Procesando...':mode==='login'?'Entrar a mi cuenta':'Crear mi cuenta'}</button>
     </form>
@@ -1202,12 +663,12 @@ function CompleteGoogleProfilePage({auth}){
 
     const {error:profileError}=await supabase
       .from('profiles')
-      .upsert({
-        id:auth.user.id,
+      .update({
         full_name:cleanName,
         phone:fullPhone,
         updated_at:new Date().toISOString()
-      },{onConflict:'id'})
+      })
+      .eq('id',auth.user.id)
 
     if(profileError){
       setBusy(false)
@@ -1747,7 +1208,7 @@ function RewardsPage({auth,catalog,addressBook,destination,setDestination,select
 function OrdersPage({auth,catalog,addressBook,destination,setDestination,selectedAddress}){const nav=useNavigate();const [orders,setOrders]=useState([]);const [loading,setLoading]=useState(true);const load=async()=>{if(!supabase||!auth.user){setLoading(false);return}const {data}=await supabase.from('orders').select('*, order_items(*)').eq('user_id',auth.user.id).order('created_at',{ascending:false});setOrders(data||[]);setLoading(false)};useEffect(()=>{load();if(!supabase||!auth.user)return;const ch=supabase.channel(`client-orders-${auth.user.id}`).on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`user_id=eq.${auth.user.id}`},load).subscribe();return()=>supabase.removeChannel(ch)},[auth.user?.id]);if(!auth.user)return <main><Header auth={auth} catalog={catalog} addressBook={addressBook} destination={destination} setDestination={setDestination} selectedAddress={selectedAddress}/><EmptyState icon={<ShoppingBag/>} title="Tus pedidos en un solo lugar" text="Inicia sesión para ver tu historial y seguimiento." button="Iniciar sesión" onClick={()=>nav('/login')}/></main>;const active=orders.filter(o=>!['delivered','cancelled'].includes(o.status));const history=orders.filter(o=>['delivered','cancelled'].includes(o.status));return <main><Header auth={auth} catalog={catalog} addressBook={addressBook} destination={destination} setDestination={setDestination} selectedAddress={selectedAddress}/><section className="page-intro compact"><span className="eyebrow dark">MIS PEDIDOS</span><h1>Tu pedido</h1></section>{loading?<div className="loading-state"><RefreshCw className="spin"/> Cargando...</div>:<section className="orders"><div className="orders-group-title">PEDIDO ACTUAL</div>{active.map(o=><OrderCard key={o.id} o={o} active/>)}{active.length===0&&<div className="no-active-order"><ShoppingBag/><div><strong>No tienes un pedido en curso</strong><small>Cuando hagas uno, podrás seguirlo aquí.</small></div><button className="primary" onClick={()=>nav('/menu')}>Hacer pedido</button></div>}{history.length>0&&<><div className="orders-group-title history-title">ANTERIORES</div>{history.map(o=><OrderCard key={o.id} o={o}/>)}</>}</section>}</main>}
 function OrderCard({o,active}){const state=clientStatus(o.status,o.fulfillment_type);return <article className={active?'active-order-card':''}><div><span className={`status ${o.status==='delivered'?'completed':''}`}><Check size={15}/> {state}</span><small>{new Date(o.created_at).toLocaleString('es-MX')} · {o.branch_id==='zakia'?'KYO Zákia':'KYO Milenio'}</small></div><h3>Pedido #{String(o.order_number).padStart(4,'0')}</h3><p>{o.order_items?.map(i=>`${i.quantity}× ${i.product_name}`).join(' · ')}</p>{active&&<div className="client-progress"><div className={['preparing','ready','on_the_way','delivered'].includes(o.status)?'done':''}><i>1</i><span>Preparando</span></div><div className={(o.fulfillment_type==='pickup'?['ready','on_the_way','delivered']:['on_the_way','delivered']).includes(o.status)?'done':''}><i>2</i><span>{o.fulfillment_type==='pickup'?'Listo para recoger':'En camino'}</span></div><div className={o.status==='delivered'?'done':''}><i>3</i><span>Entregado</span></div></div>}<div><strong>{money(Number(o.total||0)+Number(o.tip_amount||0))}</strong>{Number(o.tip_amount||0)>0&&<small className="order-tip-note">Incluye {money(o.tip_amount)} de propina</small>}</div></article>}
 
-function CartPage({cart,update,total,rawTotal,promoPreview,destination,selectedAddress,branch,catalog,storeStatus}){const nav=useNavigate();const delivery=destination.mode==='delivery';const currentProductFor=item=>(catalog?.products||[]).find(p=>String(p.id)===String(item.product_id||item.id));const cartImage=item=>{const current=currentProductFor(item);return current?.image||current?.image_url||item.image||item.image_url||'/assets/kyo-logo.jpg'};return <main><div className="simple-head"><button onClick={()=>nav(-1)}><ArrowLeft/></button><h1>Tu pedido</h1><span/></div>{cart.length===0?<EmptyState icon={<ShoppingBag/>} title="Tu carrito está vacío" text="Hay mucho KYO esperándote." button="Ver menú" onClick={()=>nav('/menu')}/>:<><section className="cart-branch"><MapPin/><div><small>{delivery?'Entregar en':'Recoger en'}</small><strong>{delivery?(selectedAddress?.label||'Dirección'):branch?.name}</strong><span>{delivery?formatAddress(selectedAddress):branch?.address}</span></div></section><section className="cart-items">{cart.map(i=><article key={i.cartLineId||i.id}><img src={cartImage(i)} onError={e=>{e.currentTarget.onerror=null;e.currentTarget.src='/assets/kyo-logo.jpg'}}/><div className="cart-info"><h3>{i.name}</h3>{i.selectedCustomizations?.length>0&&<div className="cart-customizations">{i.selectedCustomizations.map((c,idx)=><small key={idx}>{c.label}{c.price>0?` +${money(c.price)}`:''}</small>)}</div>}{i.itemNote&&<small className="item-note">Nota: {i.itemNote}</small>}{i.reward?<strong className="reward-free-price">GRATIS · KYO REWARDS</strong>:<strong>{money(i.price)}</strong>}</div><div className={`qty ${i.reward?'reward-qty':''}`}><button onClick={()=>update(i.cartLineId||i.id,-1)}><Trash2 size={16}/></button><b>{i.reward?'1':i.qty}</b>{!i.reward&&<button onClick={()=>update(i.cartLineId||i.id,1)}><Plus size={16}/></button>}</div></article>)}</section><section className="summary"><div><span>Productos</span><strong>{money(rawTotal)}</strong></div>{promoPreview?.discount>0&&<div className="promo-3x2-summary"><span>Promo 3×2 · {promoPreview.freeUnits} gratis</span><strong>-{money(promoPreview.discount)}</strong></div>}<div><span>Subtotal</span><strong>{money(total)}</strong></div>{delivery&&<div><span>Envío</span><strong className="free-delivery">GRATIS</strong></div>}<div className="total"><span>Total</span><strong>{money(total)}</strong></div></section>{rawTotal<Number(catalog?.settings?.minimum_order||200)&&<div className="minimum-order-notice cart-minimum-notice"><strong>Pedido mínimo {money(catalog?.settings?.minimum_order||200)}</strong><span>Te faltan {money(Number(catalog?.settings?.minimum_order||200)-rawTotal)} en productos.</span></div>}{storeStatus?.ready&&!storeStatus?.open&&<div className="store-cart-closed"><Clock3/><span><strong>KYO está cerrado</strong><small>Podrás continuar tu pedido cuando abramos nuevamente.</small></span></div>}<div className="checkout-bar"><button disabled={!storeStatus?.ready||!storeStatus?.open||rawTotal<Number(catalog?.settings?.minimum_order||200)} className="primary full" onClick={()=>nav('/checkout')}>Continuar · {money(total)}</button></div></>}</main>}
+function CartPage({cart,update,total,rawTotal,promo,destination,selectedAddress,branch,catalog,storeStatus}){const nav=useNavigate();const delivery=destination.mode==='delivery';return <main><div className="simple-head"><button onClick={()=>nav(-1)}><ArrowLeft/></button><h1>Tu pedido</h1><span/></div>{cart.length===0?<EmptyState icon={<ShoppingBag/>} title="Tu carrito está vacío" text="Hay mucho KYO esperándote." button="Ver menú" onClick={()=>nav('/menu')}/>:<><section className="cart-branch"><MapPin/><div><small>{delivery?'Entregar en':'Recoger en'}</small><strong>{delivery?(selectedAddress?.label||'Dirección'):branch?.name}</strong><span>{delivery?formatAddress(selectedAddress):branch?.address}</span></div></section><section className="cart-items">{cart.map(i=><article key={i.cartLineId||i.id}><img src={i.image||i.image_url}/><div className="cart-info"><h3>{i.name}</h3>{i.selectedCustomizations?.length>0&&<div className="cart-customizations">{i.selectedCustomizations.map((c,idx)=><small key={idx}>{c.label}{c.price>0?` +${money(c.price)}`:''}</small>)}</div>}{i.itemNote&&<small className="item-note">Nota: {i.itemNote}</small>}{i.reward?<strong className="reward-free-price">GRATIS · KYO REWARDS</strong>:<strong>{money(i.price)}</strong>}</div><div className={`qty ${i.reward?'reward-qty':''}`}><button onClick={()=>update(i.cartLineId||i.id,-1)}><Trash2 size={16}/></button><b>{i.reward?'1':i.qty}</b>{!i.reward&&<button onClick={()=>update(i.cartLineId||i.id,1)}><Plus size={16}/></button>}</div></article>)}</section><section className="summary"><div><span>Productos</span><strong>{money(rawTotal)}</strong></div>{promo?.discount>0&&<div className="promo-discount-row"><span>Promo 3×2 <small>· producto participante más barato</small></span><strong>-{money(promo.discount)}</strong></div>}{delivery&&<div><span>Envío</span><strong className="free-delivery">GRATIS</strong></div>}<div className="total"><span>Total</span><strong>{money(total)}</strong></div></section>{promo?.active&&<div className="promo-cart-status"><Sparkles/><span><strong>{promo.discount>0?'¡3×2 aplicado!':'Promo 3×2 activa'}</strong><small>{promo.discount>0?`Ahorras ${money(promo.discount)}. Los extras se cobran normalmente.`:'Agrega 3 productos marcados como participantes para aplicar el descuento.'}</small></span></div>}{rawTotal<Number(catalog?.settings?.minimum_order||200)&&<div className="minimum-order-notice cart-minimum-notice"><strong>Pedido mínimo {money(catalog?.settings?.minimum_order||200)}</strong><span>Te faltan {money(Number(catalog?.settings?.minimum_order||200)-rawTotal)} en productos.</span></div>}{storeStatus?.ready&&!storeStatus?.open&&<div className="store-cart-closed"><Clock3/><span><strong>KYO está cerrado</strong><small>Podrás continuar tu pedido cuando abramos nuevamente.</small></span></div>}<div className="checkout-bar"><button disabled={!storeStatus?.ready||!storeStatus?.open||rawTotal<Number(catalog?.settings?.minimum_order||200)} className="primary full" onClick={()=>nav('/checkout')}>Continuar · {money(total)}</button></div></>}</main>}
 
 function StripePaymentForm({order,fulfillmentType,chargeTotal,onPaid,onBack}){
   const stripe=useStripe();const elements=useElements();const [busy,setBusy]=useState(false);const [error,setError]=useState('')
@@ -1766,7 +1227,7 @@ function StripePaymentForm({order,fulfillmentType,chargeTotal,onPaid,onBack}){
   return <main className="checkout-page stripe-payment-page"><div className="simple-head"><button onClick={onBack} disabled={busy}><ArrowLeft/></button><h1>Pago seguro</h1><span/></div><section className="checkout-section stripe-payment-card"><div className="stripe-secure-head"><span><CreditCard/></span><div><small>PAGO PROTEGIDO POR STRIPE</small><h2>Tarjeta o Apple Pay</h2><p>Apple Pay aparecerá automáticamente cuando esté disponible en tu dispositivo.</p></div></div><PaymentElement options={{layout:'tabs'}}/>{error&&<div className="form-message checkout-message">{error}</div>}<div className="stripe-charge-summary"><span>Total a cobrar</span><strong>{money(chargeTotal)}</strong></div><button className="primary full stripe-pay-button" disabled={!stripe||busy} onClick={pay}>{busy?'Procesando pago...':`Pagar ${money(chargeTotal)}`}</button><button className="stripe-back-button" disabled={busy} onClick={onBack}>Volver al checkout</button><p className="stripe-legal-note">KYO no recibe ni almacena los datos completos de tu tarjeta. El pago es procesado por Stripe.</p></section></main>
 }
 
-function CheckoutPage({cart,total,rawTotal,promoPreview,auth,catalog,addressBook,destination,setDestination,selectedAddress,branch,setCart,storeStatus}){
+function CheckoutPage({cart,total,rawTotal,promo,auth,catalog,addressBook,destination,setDestination,selectedAddress,branch,setCart,storeStatus}){
   const nav=useNavigate();const requestKeyRef=useRef(newRequestId());const [type,setType]=useState(destination.mode||'delivery');const [selected,setSelected]=useState(destination.addressId||'');const [pickupBranch,setPickupBranch]=useState(destination.branchId||'zakia');const [payment,setPayment]=useState('cash');const [saveCard,setSaveCard]=useState(false);const [notes,setNotes]=useState('');const [tipPercent,setTipPercent]=useState(0);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [adding,setAdding]=useState(false);const [stripeSession,setStripeSession]=useState(null)
   if(!auth.user)return <Navigate to="/login" replace/>
   const effectiveTipPercent=tipPercent;const tipAmount=Math.round((Number(total||0)*effectiveTipPercent/100)*100)/100;const chargeTotal=Number(total||0)+tipAmount
@@ -1794,7 +1255,7 @@ function CheckoutPage({cart,total,rawTotal,promoPreview,auth,catalog,addressBook
   }
   const paymentCompleted=order=>{setCart([]);nav('/success',{state:{orderNumber:order?.order_number,fulfillmentType:type,paymentProcessing:true,orderId:order?.id}})}
   if(stripeSession)return <Elements stripe={stripeSession.stripePromise} options={{clientSecret:stripeSession.clientSecret,customerSessionClientSecret:stripeSession.customerSessionClientSecret,appearance:{theme:'night',variables:{colorPrimary:'#ff6a00',colorBackground:'#171717',colorText:'#ffffff',colorDanger:'#ff5a52',borderRadius:'12px'}}}}><StripePaymentForm order={stripeSession.order} fulfillmentType={stripeSession.fulfillmentType} chargeTotal={stripeSession.chargeTotal} onPaid={paymentCompleted} onBack={()=>setStripeSession(null)}/></Elements>
-  return <main className="checkout-page"><div className="simple-head"><button onClick={()=>nav(-1)}><ArrowLeft/></button><h1>Finalizar pedido</h1><span/></div><section className="checkout-section"><h2>¿Cómo quieres tu pedido?</h2><div className="type-toggle"><button onClick={()=>setType('delivery')} className={type==='delivery'?'active':''}><Bike/><span><strong>Delivery</strong><small>Entrega gratis a tu dirección</small></span></button><button onClick={()=>setType('pickup')} className={type==='pickup'?'active':''}><Store/><span><strong>Recoger</strong><small>20–30 min</small></span></button></div></section>{type==='delivery'?<section className="checkout-section"><div className="checkout-title-row"><h2>Dirección de entrega</h2><button className="text-btn" onClick={()=>setAdding(true)}><Plus size={16}/> Agregar</button></div>{addressBook.addresses.map(a=><button className={`address-option ${selected===a.id?'active':''}`} onClick={()=>chooseAddress(a)} key={a.id}><MapPin/><span><strong>{a.label} · {a.branch_id==='zakia'?'Zákia':'Milenio'}</strong><small>{formatAddress(a)}</small>{a.notes&&<em>{a.notes}</em>}</span>{selected===a.id&&<Check/>}</button>)}{addressBook.addresses.length===0&&<button className="save-login" onClick={()=>setAdding(true)}>+ Agregar dirección aquí</button>}</section>:<section className="checkout-section"><h2>¿En qué sucursal recoges?</h2>{catalog.branches.map(b=><button className={`address-option ${pickupBranch===b.id?'active':''}`} onClick={()=>setPickupBranch(b.id)} key={b.id}><Store/><span><strong>{b.name}</strong><small>{b.address}</small></span>{pickupBranch===b.id&&<Check/>}</button>)}</section>}<section className="checkout-section"><h2>Método de pago</h2><button className={`pay-option ${payment==='card'?'active':''}`} onClick={()=>setPayment('card')}><CreditCard/><span><strong>Tarjeta / Apple Pay</strong><small>Pago seguro procesado por Stripe</small></span>{payment==='card'&&<Check/>}</button><button className={`pay-option ${payment==='terminal'?'active':''}`} onClick={()=>setPayment('terminal')}><CreditCard/><span><strong>Terminal</strong><small>Paga con tu tarjeta en físico al recibir el pedido</small></span>{payment==='terminal'&&<Check/>}</button><button className={`pay-option ${payment==='cash'?'active':''}`} onClick={()=>setPayment('cash')}><Banknote/><span><strong>Efectivo</strong><small>Paga al recibir tu pedido</small></span>{payment==='cash'&&<Check/>}</button>{payment==='card'&&<label className="stripe-save-card-check"><input type="checkbox" checked={saveCard} onChange={e=>setSaveCard(e.target.checked)}/><span><strong>Guardar mi tarjeta para próximos pedidos</strong><small>Stripe la guarda de forma segura; KYO no almacena los datos de la tarjeta.</small></span></label>}<label className="admin-field"><span>Notas del pedido</span><textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Sin cebolla, agregar soya..."/></label></section><section className="checkout-section tip-section"><div className="tip-title"><div><h2>Propina para el team</h2><p>La propina es opcional y es para el team KYO. No forma parte de la venta de KYO.</p></div>{tipAmount>0&&<strong>{money(tipAmount)}</strong>}</div><div className="tip-options"><button className={tipPercent===0?'active':''} onClick={()=>setTipPercent(0)}>Sin propina</button>{[5,10,20].map(v=><button key={v} className={tipPercent===v?'active':''} onClick={()=>setTipPercent(v)}><strong>{v}%</strong><small>{money(total*v/100)}</small></button>)}</div></section>{rawTotal<Number(catalog.settings?.minimum_order||200)&&<div className="minimum-order-notice"><strong>Pedido mínimo {money(catalog.settings?.minimum_order||200)}</strong><span>Agrega {money(Number(catalog.settings?.minimum_order||200)-rawTotal)} más en productos para continuar.</span></div>}{storeStatus?.ready&&!storeStatus?.open&&<div className="store-cart-closed"><Clock3/><span><strong>KYO está cerrado</strong><small>No es posible confirmar pedidos fuera del horario de servicio.</small></span></div>}{error&&<div className="form-message checkout-message">{error}</div>}<section className="summary checkout-summary"><div><span>Productos ({cart.reduce((a,i)=>a+i.qty,0)})</span><strong>{money(rawTotal)}</strong></div>{promoPreview?.discount>0&&<div className="promo-3x2-summary"><span>Promo 3×2 · {promoPreview.freeUnits} gratis</span><strong>-{money(promoPreview.discount)}</strong></div>}<div><span>Subtotal con promo</span><strong>{money(total)}</strong></div>{type==='delivery'&&<div><span>Envío</span><strong className="free-delivery">GRATIS</strong></div>}{tipAmount>0&&<div className="tip-summary-row"><span>Propina para el team ({effectiveTipPercent}%)</span><strong>{money(tipAmount)}</strong></div>}<div className="total"><span>{payment==='card'?'Total a cobrar':'Total a pagar'}</span><strong>{money(chargeTotal)}</strong></div>{tipAmount>0&&<small className="tip-accounting-note">Venta KYO: {money(total)} · Propina: {money(tipAmount)}</small>}</section><div className="checkout-bar"><button disabled={busy||!storeStatus?.ready||!storeStatus?.open||rawTotal<Number(catalog.settings?.minimum_order||200)} className="primary full" onClick={finish}>{busy?'Preparando...':payment==='card'?`Continuar al pago · ${money(chargeTotal)}`:`Confirmar pedido · ${money(chargeTotal)}`}</button></div>{adding&&<AddressModal auth={auth} branches={catalog.branches} onClose={()=>setAdding(false)} onSaved={async a=>{await addressBook.refresh();chooseAddress(a);setAdding(false)}}/>}</main>
+  return <main className="checkout-page"><div className="simple-head"><button onClick={()=>nav(-1)}><ArrowLeft/></button><h1>Finalizar pedido</h1><span/></div><section className="checkout-section"><h2>¿Cómo quieres tu pedido?</h2><div className="type-toggle"><button onClick={()=>setType('delivery')} className={type==='delivery'?'active':''}><Bike/><span><strong>Delivery</strong><small>Entrega gratis a tu dirección</small></span></button><button onClick={()=>setType('pickup')} className={type==='pickup'?'active':''}><Store/><span><strong>Recoger</strong><small>20–30 min</small></span></button></div></section>{type==='delivery'?<section className="checkout-section"><div className="checkout-title-row"><h2>Dirección de entrega</h2><button className="text-btn" onClick={()=>setAdding(true)}><Plus size={16}/> Agregar</button></div>{addressBook.addresses.map(a=><button className={`address-option ${selected===a.id?'active':''}`} onClick={()=>chooseAddress(a)} key={a.id}><MapPin/><span><strong>{a.label} · {a.branch_id==='zakia'?'Zákia':'Milenio'}</strong><small>{formatAddress(a)}</small>{a.notes&&<em>{a.notes}</em>}</span>{selected===a.id&&<Check/>}</button>)}{addressBook.addresses.length===0&&<button className="save-login" onClick={()=>setAdding(true)}>+ Agregar dirección aquí</button>}</section>:<section className="checkout-section"><h2>¿En qué sucursal recoges?</h2>{catalog.branches.map(b=><button className={`address-option ${pickupBranch===b.id?'active':''}`} onClick={()=>setPickupBranch(b.id)} key={b.id}><Store/><span><strong>{b.name}</strong><small>{b.address}</small></span>{pickupBranch===b.id&&<Check/>}</button>)}</section>}<section className="checkout-section"><h2>Método de pago</h2><button className={`pay-option ${payment==='card'?'active':''}`} onClick={()=>setPayment('card')}><CreditCard/><span><strong>Tarjeta / Apple Pay</strong><small>Pago seguro procesado por Stripe</small></span>{payment==='card'&&<Check/>}</button><button className={`pay-option ${payment==='terminal'?'active':''}`} onClick={()=>setPayment('terminal')}><CreditCard/><span><strong>Terminal</strong><small>Paga con tu tarjeta en físico al recibir el pedido</small></span>{payment==='terminal'&&<Check/>}</button><button className={`pay-option ${payment==='cash'?'active':''}`} onClick={()=>setPayment('cash')}><Banknote/><span><strong>Efectivo</strong><small>Paga al recibir tu pedido</small></span>{payment==='cash'&&<Check/>}</button>{payment==='card'&&<label className="stripe-save-card-check"><input type="checkbox" checked={saveCard} onChange={e=>setSaveCard(e.target.checked)}/><span><strong>Guardar mi tarjeta para próximos pedidos</strong><small>Stripe la guarda de forma segura; KYO no almacena los datos de la tarjeta.</small></span></label>}<label className="admin-field"><span>Notas del pedido</span><textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Sin cebolla, agregar soya..."/></label></section><section className="checkout-section tip-section"><div className="tip-title"><div><h2>Propina para el team</h2><p>La propina es opcional y es para el team KYO. No forma parte de la venta de KYO.</p></div>{tipAmount>0&&<strong>{money(tipAmount)}</strong>}</div><div className="tip-options"><button className={tipPercent===0?'active':''} onClick={()=>setTipPercent(0)}>Sin propina</button>{[5,10,20].map(v=><button key={v} className={tipPercent===v?'active':''} onClick={()=>setTipPercent(v)}><strong>{v}%</strong><small>{money(total*v/100)}</small></button>)}</div></section>{rawTotal<Number(catalog.settings?.minimum_order||200)&&<div className="minimum-order-notice"><strong>Pedido mínimo {money(catalog.settings?.minimum_order||200)}</strong><span>Agrega {money(Number(catalog.settings?.minimum_order||200)-rawTotal)} más en productos para continuar.</span></div>}{storeStatus?.ready&&!storeStatus?.open&&<div className="store-cart-closed"><Clock3/><span><strong>KYO está cerrado</strong><small>No es posible confirmar pedidos fuera del horario de servicio.</small></span></div>}{error&&<div className="form-message checkout-message">{error}</div>}<section className="summary checkout-summary"><div><span>Productos ({cart.reduce((a,i)=>a+i.qty,0)})</span><strong>{money(rawTotal)}</strong></div>{promo?.discount>0&&<div className="promo-discount-row"><span>Promo 3×2</span><strong>-{money(promo.discount)}</strong></div>}{type==='delivery'&&<div><span>Envío</span><strong className="free-delivery">GRATIS</strong></div>}{tipAmount>0&&<div className="tip-summary-row"><span>Propina para el team ({effectiveTipPercent}%)</span><strong>{money(tipAmount)}</strong></div>}<div className="total"><span>{payment==='card'?'Total a cobrar':'Total a pagar'}</span><strong>{money(chargeTotal)}</strong></div>{tipAmount>0&&<small className="tip-accounting-note">Venta KYO: {money(total)} · Propina: {money(tipAmount)}</small>}</section><div className="checkout-bar"><button disabled={busy||!storeStatus?.ready||!storeStatus?.open||rawTotal<Number(catalog.settings?.minimum_order||200)} className="primary full" onClick={finish}>{busy?'Preparando...':payment==='card'?`Continuar al pago · ${money(chargeTotal)}`:`Confirmar pedido · ${money(chargeTotal)}`}</button></div>{adding&&<AddressModal auth={auth} branches={catalog.branches} onClose={()=>setAdding(false)} onSaved={async a=>{await addressBook.refresh();chooseAddress(a);setAdding(false)}}/>}</main>
 }
 
 function SuccessPage({setCart}){
