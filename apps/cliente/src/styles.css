@@ -3744,3 +3744,42 @@ main{
 .promo-discount-row{color:#f47a1f!important}.promo-discount-row strong{color:#f47a1f!important}.promo-discount-row small{color:#9d7457;font-size:9px}
 .promo-cart-status{margin:10px 24px 0;padding:12px 14px;border:1px solid #6a3c1d;background:#21170f;border-radius:14px;display:flex;gap:10px;align-items:center}.promo-cart-status>svg{color:#f47a1f}.promo-cart-status span{display:grid;gap:2px}.promo-cart-status strong{font-size:13px}.promo-cart-status small{font-size:10px;color:#a78d7a}
 @media(max-width:760px){.promo-3x2-home{margin:12px 12px 24px;padding:18px;display:grid}.promo-3x2-home h2{font-size:22px}.promo-3x2-home button{justify-content:center}.promo-3x2-menu-strip{margin:0 12px 12px;display:grid;gap:7px}.promo-cart-status{margin-left:12px;margin-right:12px}}
+
+
+/* ===== v29 · zonas de entrega y tarifas por colonia ===== */
+.address-editor select{
+  min-height:48px!important;
+  border:1px solid #ddd!important;
+  border-radius:11px!important;
+  padding:0 42px 0 13px!important;
+  background:#fff!important;
+  color:#222!important;
+  font:inherit!important;
+}
+.address-zone-note{
+  display:block!important;
+  margin-top:6px!important;
+  color:#8a837b!important;
+  font-size:10px!important;
+  font-weight:600!important;
+  line-height:1.4!important;
+}
+.delivery-zone-warning{
+  margin:12px 6%!important;
+  padding:14px 16px!important;
+  display:flex!important;
+  align-items:flex-start!important;
+  gap:10px!important;
+  border:1px solid #f0cda8!important;
+  border-radius:14px!important;
+  background:#fff8ef!important;
+  color:#7b4a1d!important;
+}
+.delivery-zone-warning svg{flex:0 0 auto;width:19px!important;height:19px!important}
+.delivery-zone-warning span{display:grid!important;gap:3px!important}
+.delivery-zone-warning strong{font-size:12px!important}
+.delivery-zone-warning small{font-size:10px!important;line-height:1.4!important;color:#8a6745!important}
+.summary>div:not(.promo-discount-row) strong{white-space:nowrap}
+@media(max-width:800px){
+  .delivery-zone-warning{margin-left:14px!important;margin-right:14px!important}
+}
