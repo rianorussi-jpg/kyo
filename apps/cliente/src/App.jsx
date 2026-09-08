@@ -238,7 +238,7 @@ function useDeliveryZones(){
   const [loading,setLoading]=useState(true)
   const refresh=async()=>{
     if(!supabase){setZones([]);setLoading(false);return}
-    const {data,error}=await supabase.from('delivery_zones').select('id,name,branch_id,delivery_fee,sort_order').eq('active',true).order('sort_order')
+    const {data,error}=await supabase.from('delivery_zones').select('id,name,branch_id,delivery_fee,sort_order').eq('active',true).order('name',{ascending:true})
     if(error){console.error('Delivery zones load error',error);setZones([])}
     else setZones((data||[]).map(z=>({...z,delivery_fee:Number(z.delivery_fee||0)})))
     setLoading(false)
@@ -901,7 +901,7 @@ function AddressModal({auth,deliveryZones,onClose,onSaved,initial=null}){
     onSaved(result.data)
   }
 
-  const zones=zoneSource?.zones||[]
+  const zones=useMemo(()=>[...(zoneSource?.zones||[])].sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'es',{sensitivity:'base'})),[zoneSource?.zones])
   return <div className="modal-backdrop">
     <form className="address-editor" onSubmit={save}>
       <div className="modal-head">

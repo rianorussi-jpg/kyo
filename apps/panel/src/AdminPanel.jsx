@@ -236,6 +236,92 @@ function AdminNotifications(){
   </div>
 }
 
+function DeliveryZonesManager({catalog}){
+  const [zones,setZones]=useState([])
+  const [loading,setLoading]=useState(true)
+  const [busyId,setBusyId]=useState(null)
+  const [message,setMessage]=useState('')
+  const [draft,setDraft]=useState({name:'',branch_id:catalog.branches?.[0]?.id||'zakia',delivery_fee:''})
+
+  const branchName=id=>catalog.branches?.find(b=>b.id===id)?.name||(id==='zakia'?'Zákia':id==='milenio'?'Milenio':id)
+  const sortZones=rows=>[...(rows||[])].sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'es',{sensitivity:'base'}))
+
+  const load=async()=>{
+    setLoading(true);setMessage('')
+    const {data,error}=await supabase.from('delivery_zones').select('id,name,branch_id,delivery_fee,sort_order,active').eq('active',true).order('name',{ascending:true})
+    setLoading(false)
+    if(error){setZones([]);setMessage(error.message);return}
+    setZones(sortZones((data||[]).map(z=>({...z,delivery_fee:Number(z.delivery_fee||0)}))))
+  }
+  useEffect(()=>{load()},[])
+  useEffect(()=>{
+    if(!draft.branch_id&&catalog.branches?.[0]?.id)setDraft(d=>({...d,branch_id:catalog.branches[0].id}))
+  },[catalog.branches?.length])
+
+  const updateLocal=(id,field,value)=>setZones(prev=>prev.map(z=>z.id===id?{...z,[field]:value}:z))
+
+  const addZone=async()=>{
+    const name=draft.name.trim()
+    const fee=Number(draft.delivery_fee)
+    setMessage('')
+    if(!name)return setMessage('Escribe el nombre de la colonia.')
+    if(!draft.branch_id)return setMessage('Selecciona la cocina que recibirá los pedidos.')
+    if(!Number.isFinite(fee)||fee<0)return setMessage('El precio de envío debe ser 0 o mayor.')
+    setBusyId('new')
+    const nextSort=(zones.reduce((m,z)=>Math.max(m,Number(z.sort_order||0)),0)||0)+10
+    const {error}=await supabase.from('delivery_zones').insert({name,branch_id:draft.branch_id,delivery_fee:fee,sort_order:nextSort,active:true})
+    setBusyId(null)
+    if(error)return setMessage(error.message)
+    setDraft({name:'',branch_id:catalog.branches?.[0]?.id||'zakia',delivery_fee:''})
+    setMessage('Colonia agregada.')
+    await load()
+  }
+
+  const saveZone=async zone=>{
+    const name=String(zone.name||'').trim()
+    const fee=Number(zone.delivery_fee)
+    setMessage('')
+    if(!name)return setMessage('La colonia necesita un nombre.')
+    if(!zone.branch_id)return setMessage('Selecciona la cocina de esta colonia.')
+    if(!Number.isFinite(fee)||fee<0)return setMessage('El precio de envío debe ser 0 o mayor.')
+    setBusyId(zone.id)
+    const {error}=await supabase.from('delivery_zones').update({name,branch_id:zone.branch_id,delivery_fee:fee}).eq('id',zone.id)
+    setBusyId(null)
+    if(error)return setMessage(error.message)
+    setMessage(`Se guardó ${name}.`)
+    await load()
+  }
+
+  const removeZone=async zone=>{
+    if(!confirm(`¿Eliminar ${zone.name} de las colonias disponibles? Las direcciones históricas no se borrarán.`))return
+    setBusyId(zone.id);setMessage('')
+    const {error}=await supabase.from('delivery_zones').update({active:false}).eq('id',zone.id)
+    setBusyId(null)
+    if(error)return setMessage(error.message)
+    setZones(prev=>prev.filter(z=>z.id!==zone.id))
+    setMessage(`${zone.name} ya no aparecerá para clientes.`)
+  }
+
+  return <section className="admin-settings-card delivery-zones-card">
+    <div className="settings-card-head"><span><MapPin/></span><div><small>DELIVERY</small><h2>Colonias, precios y cocina</h2><p>Agrega o elimina colonias, cambia su costo de envío y decide qué cocina recibirá automáticamente los pedidos de cada zona.</p></div></div>
+    <div className="delivery-zone-new">
+      <label className="admin-field"><span>Nueva colonia</span><input value={draft.name} onChange={e=>setDraft({...draft,name:e.target.value})} placeholder="Ej. El Refugio"/></label>
+      <label className="admin-field"><span>Cocina</span><select value={draft.branch_id} onChange={e=>setDraft({...draft,branch_id:e.target.value})}>{catalog.branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
+      <label className="admin-field"><span>Precio de envío</span><div className="settings-money-input"><b>$</b><input type="number" min="0" step="1" value={draft.delivery_fee} onChange={e=>setDraft({...draft,delivery_fee:e.target.value})} placeholder="0"/></div></label>
+      <button className="primary delivery-zone-add" disabled={busyId==='new'||loading} onClick={addZone}><Plus/> {busyId==='new'?'Agregando...':'Agregar colonia'}</button>
+    </div>
+    {loading?<div className="delivery-zones-loading"><RefreshCw className="spin"/> Cargando colonias...</div>:<div className="delivery-zones-list">
+      {zones.length===0?<div className="admin-empty"><MapPin/><h3>No hay colonias activas</h3><p>Agrega la primera colonia para habilitar delivery por zona.</p></div>:zones.map(zone=><div className="delivery-zone-row" key={zone.id}>
+        <label className="admin-field"><span>Colonia</span><input value={zone.name} onChange={e=>updateLocal(zone.id,'name',e.target.value)}/></label>
+        <label className="admin-field"><span>Cocina</span><select value={zone.branch_id} onChange={e=>updateLocal(zone.id,'branch_id',e.target.value)}>{catalog.branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><small>Pedidos → {branchName(zone.branch_id)}</small></label>
+        <label className="admin-field"><span>Envío</span><div className="settings-money-input"><b>$</b><input type="number" min="0" step="1" value={zone.delivery_fee} onChange={e=>updateLocal(zone.id,'delivery_fee',e.target.value)}/></div></label>
+        <div className="delivery-zone-actions"><button className="secondary-btn" disabled={busyId===zone.id} onClick={()=>saveZone(zone)}><Save/> Guardar</button><button className="delivery-zone-delete" disabled={busyId===zone.id} onClick={()=>removeZone(zone)}><Trash2/> Eliminar</button></div>
+      </div>)}
+    </div>}
+    {message&&<div className="form-message delivery-zone-message">{message}</div>}
+  </section>
+}
+
 function AdminSettings({catalog}){
   const [minimum,setMinimum]=useState(catalog.settings?.minimum_order||200)
   const [rewardPoints,setRewardPoints]=useState(catalog.settings?.points_reward_cost||250)
@@ -364,6 +450,8 @@ function AdminSettings({catalog}){
       <div className="settings-card-head"><span><DollarSign/></span><div><small>PEDIDOS</small><h2>Pedido mínimo</h2><p>El subtotal de productos debe alcanzar esta cantidad antes de confirmar.</p></div></div>
       <label className="admin-field settings-number-field"><span>Monto mínimo</span><div className="settings-money-input"><b>$</b><input type="number" min="0" step="1" value={minimum} onChange={e=>setMinimum(e.target.value)}/></div></label>
     </section>
+
+    <DeliveryZonesManager catalog={catalog}/>
 
     <section className="admin-settings-card">
       <div className="settings-card-head"><span><Clock3/></span><div><small>HORARIOS</small><h2>Horario de pedidos</h2><p>La app usa siempre la hora de Ciudad de México. Fuera de este horario los clientes no pueden agregar productos al carrito.</p></div></div>
