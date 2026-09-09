@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Routes, Route, NavLink, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Home, Gift, ShoppingBag, User, Search, BookOpen, MapPin, ChevronRight, Flame, Plus, Minus,
@@ -451,7 +452,25 @@ function LazyProductImage({src,alt}){
   </div>
 }
 
-function ProductCard({p,add,branchId,storeOpen=true,storeReady=true,promoActive=false}){const branchUnavailable=branchId&&p.branchAvailability?.[branchId]===false;const storeClosed=storeReady&&!storeOpen;const scheduleLoading=!storeReady;return <article className={`product-card ${branchUnavailable||storeClosed?'branch-unavailable':''} ${p.promo_3x2_eligible?'promo-eligible':''}`}><div className="product-img"><LazyProductImage src={p.image||p.image_url} alt={p.name}/>{p.spicy&&<span className="spicy"><Flame size={13}/> Spicy</span>}{p.promo_3x2_eligible&&<span className={`promo-product-badge ${promoActive?'active':''}`}>{promoActive?'3×2 HOY':'Participa en 3×2'}</span>}{(branchUnavailable||storeClosed)&&<span className="branch-soldout">{storeClosed?'Cerrado ahora':'No disponible aquí'}</span>}</div><div className="product-body"><small>{p.category}</small><h3>{p.name}</h3><p>{p.desc||p.description}</p>{p.promo_3x2_eligible&&<div className="promo-product-note">Combínalo con otros participantes · el más barato gratis</div>}<div><strong>{productDisplayPrice(p)}</strong><button className="add-btn" disabled={branchUnavailable||storeClosed||scheduleLoading} onClick={()=>!branchUnavailable&&!storeClosed&&!scheduleLoading&&add(p)} aria-label={`Agregar ${p.name}`}><Plus/></button></div></div></article>}
+function ProductImagePreview({product,onClose}){
+  useEffect(()=>{
+    const onKey=e=>e.key==='Escape'&&onClose()
+    document.addEventListener('keydown',onKey)
+    const previous=document.body.style.overflow
+    document.body.style.overflow='hidden'
+    return()=>{document.removeEventListener('keydown',onKey);document.body.style.overflow=previous}
+  },[onClose])
+  if(!product)return null
+  return createPortal(<div className="product-preview-backdrop" role="dialog" aria-modal="true" aria-label={`Vista previa de ${product.name}`} onClick={onClose}>
+    <div className="product-preview-modal" onClick={e=>e.stopPropagation()}>
+      <button className="product-preview-close" onClick={onClose} aria-label="Cerrar vista previa"><X/></button>
+      <img src={product.image||product.image_url} alt={product.name}/>
+      <div className="product-preview-caption"><small>{product.category}</small><strong>{product.name}</strong></div>
+    </div>
+  </div>,document.body)
+}
+
+function ProductCard({p,add,branchId,storeOpen=true,storeReady=true,promoActive=false}){const [previewOpen,setPreviewOpen]=useState(false);const branchUnavailable=branchId&&p.branchAvailability?.[branchId]===false;const storeClosed=storeReady&&!storeOpen;const scheduleLoading=!storeReady;return <><article className={`product-card ${branchUnavailable||storeClosed?'branch-unavailable':''} ${p.promo_3x2_eligible?'promo-eligible':''}`}><div className="product-img product-img-previewable" onClick={()=>setPreviewOpen(true)} role="button" tabIndex={0} aria-label={`Ver imagen de ${p.name}`} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setPreviewOpen(true)}}}><LazyProductImage src={p.image||p.image_url} alt={p.name}/><span className="product-zoom-hint">Ver foto</span>{p.spicy&&<span className="spicy"><Flame size={13}/> Spicy</span>}{p.promo_3x2_eligible&&<span className={`promo-product-badge ${promoActive?'active':''}`}>{promoActive?'3×2 HOY':'Participa en 3×2'}</span>}{(branchUnavailable||storeClosed)&&<span className="branch-soldout">{storeClosed?'Cerrado ahora':'No disponible aquí'}</span>}</div><div className="product-body"><small>{p.category}</small><h3>{p.name}</h3><p>{p.desc||p.description}</p>{p.promo_3x2_eligible&&<div className="promo-product-note">Combínalo con otros participantes · el más barato gratis</div>}<div><strong>{productDisplayPrice(p)}</strong><button className="add-btn" disabled={branchUnavailable||storeClosed||scheduleLoading} onClick={()=>!branchUnavailable&&!storeClosed&&!scheduleLoading&&add(p)} aria-label={`Agregar ${p.name}`}><Plus/></button></div></div></article>{previewOpen&&<ProductImagePreview product={p} onClose={()=>setPreviewOpen(false)}/>}</>}
 
 function MenuPage(props){
   const {auth,catalog,addressBook,destination,setDestination,selectedAddress,add,cartCount,branch,storeStatus}=props
