@@ -1282,8 +1282,12 @@ function CheckoutPage({cart,total,rawTotal,promo,auth,catalog,addressBook,delive
     const chosenBranch=type==='delivery'?currentAddress.branch_id:pickupBranch
     const items=cart.map(i=>({product_id:i.productId||i.id,quantity:i.reward?1:i.qty,reward_voucher_id:i.rewardVoucherId||null,customizations:i.selectedCustomizations||[],item_note:i.itemNote||''}))
     const {data,error:e1}=await supabase.rpc('create_order',{p_branch_id:chosenBranch,p_fulfillment_type:type,p_address_id:type==='delivery'?selected:null,p_delivery_notes:notes,p_payment_method:payment,p_items:items,p_idempotency_key:requestKeyRef.current,p_tip_percentage:effectiveTipPercent})
-    if(e1){setBusy(false);setError(friendlyError(e1,'order'));return}
-    const order=Array.isArray(data)?data[0]:data
+    if(e1){console.error('create_order failed',e1);setBusy(false);setError(`${friendlyError(e1,'order')} [${e1.code||'RPC'}: ${e1.message||'sin detalle'}]`);return}
+    let order=Array.isArray(data)?data[0]:data
+    const {data:packagingData,error:packagingError}=await supabase.rpc('apply_promo_packaging',{p_order_id:order?.id,p_items:items})
+    if(packagingError){console.error('apply_promo_packaging failed',packagingError);setBusy(false);setError(`El pedido se creó, pero no pudimos aplicar el empaque 3×2. [${packagingError.code||'RPC'}: ${packagingError.message||'sin detalle'}]`);return}
+    const packagingResult=Array.isArray(packagingData)?packagingData[0]:packagingData
+    if(packagingResult){order={...order,total:Number(packagingResult.total??order?.total),payment_total:Number(packagingResult.payment_total??order?.payment_total),promo_packaging_count:Number(packagingResult.promo_packaging_count||0),promo_packaging_fee:Number(packagingResult.promo_packaging_fee||0)}}
     setDestination(type==='delivery'?{mode:'delivery',addressId:selected,branchId:chosenBranch}:{mode:'pickup',addressId:null,branchId:pickupBranch})
     if(payment!=='card'){
       setBusy(false);setCart([]);nav('/success',{state:{orderNumber:order?.order_number,fulfillmentType:type}});return
