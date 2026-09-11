@@ -302,8 +302,9 @@ function DeliveryZonesManager({catalog}){
     setMessage(`${zone.name} ya no aparecerá para clientes.`)
   }
 
-  return <section className="admin-settings-card delivery-zones-card">
-    <div className="settings-card-head"><span><MapPin/></span><div><small>DELIVERY</small><h2>Colonias, precios y cocina</h2><p>Agrega o elimina colonias, cambia su costo de envío y decide qué cocina recibirá automáticamente los pedidos de cada zona.</p></div></div>
+  return <details className="admin-settings-card delivery-zones-card settings-collapsible">
+    <summary><div className="settings-card-head"><span><MapPin/></span><div><small>DELIVERY</small><h2>Colonias, precios y cocina</h2><p>Agrega o elimina colonias, cambia su costo de envío y decide qué cocina recibirá automáticamente los pedidos de cada zona.</p></div></div><span className="settings-expand-label">Desplegar</span></summary>
+    <div className="settings-collapsible-body">
     <div className="delivery-zone-new">
       <label className="admin-field"><span>Nueva colonia</span><input value={draft.name} onChange={e=>setDraft({...draft,name:e.target.value})} placeholder="Ej. El Refugio"/></label>
       <label className="admin-field"><span>Cocina</span><select value={draft.branch_id} onChange={e=>setDraft({...draft,branch_id:e.target.value})}>{catalog.branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
@@ -319,15 +320,16 @@ function DeliveryZonesManager({catalog}){
       </div>)}
     </div>}
     {message&&<div className="form-message delivery-zone-message">{message}</div>}
-  </section>
+    </div>
+  </details>
 }
 
 function AdminSettings({catalog}){
   const [minimum,setMinimum]=useState(catalog.settings?.minimum_order||200)
   const [rewardPoints,setRewardPoints]=useState(catalog.settings?.points_reward_cost||250)
   const [rewardProduct,setRewardProduct]=useState(catalog.settings?.points_reward_product_id||'')
-  const [busy,setBusy]=useState(false)
-  const [message,setMessage]=useState('')
+  const [busySection,setBusySection]=useState('')
+  const [sectionMessages,setSectionMessages]=useState({})
   const [pointsEmail,setPointsEmail]=useState('')
   const [pointsAmount,setPointsAmount]=useState('')
   const [pointsBusy,setPointsBusy]=useState(false)
@@ -346,22 +348,14 @@ function AdminSettings({catalog}){
     setDeliveryRiders(catalog.settings?.delivery_riders||defaultDeliveryRiders)
   },[catalog.settings?.minimum_order,catalog.settings?.points_reward_cost,catalog.settings?.points_reward_product_id,catalog.settings?.business_hours,catalog.settings?.delivery_riders])
 
-  const save=async()=>{
-    setBusy(true);setMessage('')
-    const payload={
-      id:'main',
-      minimum_order:Math.max(0,Number(minimum||0)),
-      points_reward_cost:Math.max(1,Math.round(Number(rewardPoints||1))),
-      points_reward_product_id:rewardProduct||null,
-      business_hours:businessHours,
-      delivery_riders:deliveryRiders,
-      updated_at:new Date().toISOString()
-    }
-    const {error}=await supabase.from('app_settings').upsert(payload,{onConflict:'id'})
-    setBusy(false)
-    if(error)return setMessage(error.message)
+  const saveSection=async(key,changes,success='Cambios guardados.')=>{
+    setBusySection(key)
+    setSectionMessages(prev=>({...prev,[key]:''}))
+    const {error}=await supabase.from('app_settings').update({...changes,updated_at:new Date().toISOString()}).eq('id','main')
+    setBusySection('')
+    if(error){setSectionMessages(prev=>({...prev,[key]:error.message}));return}
     await catalog.refresh()
-    setMessage('Configuración guardada.')
+    setSectionMessages(prev=>({...prev,[key]:success}))
   }
 
   const addPointsToUser=async()=>{
@@ -446,79 +440,91 @@ function AdminSettings({catalog}){
   const grouped=(catalog.categoryObjects||[]).filter(c=>!c.parent_id).sort((a,b)=>a.sort_order-b.sort_order)
 
   return <div className="admin-settings-page">
-    <section className="admin-settings-card">
-      <div className="settings-card-head"><span><DollarSign/></span><div><small>PEDIDOS</small><h2>Pedido mínimo</h2><p>El subtotal de productos debe alcanzar esta cantidad antes de confirmar.</p></div></div>
-      <label className="admin-field settings-number-field"><span>Monto mínimo</span><div className="settings-money-input"><b>$</b><input type="number" min="0" step="1" value={minimum} onChange={e=>setMinimum(e.target.value)}/></div></label>
-    </section>
+    <details className="admin-settings-card settings-collapsible">
+      <summary><div className="settings-card-head"><span><DollarSign/></span><div><small>PEDIDOS</small><h2>Pedido mínimo</h2><p>El subtotal de productos debe alcanzar esta cantidad antes de confirmar.</p></div></div><span className="settings-expand-label">Desplegar</span></summary>
+      <div className="settings-collapsible-body">
+        <label className="admin-field settings-number-field"><span>Monto mínimo</span><div className="settings-money-input"><b>$</b><input type="number" min="0" step="1" value={minimum} onChange={e=>setMinimum(e.target.value)}/></div></label>
+        {sectionMessages.minimum&&<div className="form-message">{sectionMessages.minimum}</div>}
+        <div className="settings-section-save"><button className="primary" disabled={busySection==='minimum'} onClick={()=>saveSection('minimum',{minimum_order:Math.max(0,Number(minimum||0))},'Pedido mínimo guardado.')}><Save/> {busySection==='minimum'?'Guardando...':'Guardar cambios'}</button></div>
+      </div>
+    </details>
 
     <DeliveryZonesManager catalog={catalog}/>
 
-    <section className="admin-settings-card">
-      <div className="settings-card-head"><span><Clock3/></span><div><small>HORARIOS</small><h2>Horario de pedidos</h2><p>La app usa siempre la hora de Ciudad de México. Fuera de este horario los clientes no pueden agregar productos al carrito.</p></div></div>
-      <div className="business-hours-editor">
-        {businessDayLabels.map(([day,label])=>{const h=businessHours?.[day]||defaultBusinessHours[day];return <div className={`business-day-row ${h.closed?'closed':''}`} key={day}>
-          <strong>{label}</strong>
-          <button type="button" className={`business-closed-toggle ${h.closed?'closed':''}`} onClick={()=>updateBusinessDay(day,'closed',!h.closed)}>{h.closed?'Cerrado':'Abierto'}</button>
-          <label><span>Abre</span><input type="time" disabled={h.closed} value={h.open||'13:00'} onChange={e=>updateBusinessDay(day,'open',e.target.value)}/></label>
-          <label><span>Cierra</span><input type="time" disabled={h.closed} value={h.close||'21:00'} onChange={e=>updateBusinessDay(day,'close',e.target.value)}/></label>
-        </div>})}
-      </div>
-      <small className="business-timezone-note">Zona horaria fija: America/Mexico_City (CDMX)</small>
-    </section>
-
-    <section className="admin-settings-card riders-settings-card">
-      <div className="settings-card-head"><span><Truck/></span><div><small>REPARTIDORES</small><h2>Contactos de reparto por sucursal</h2><p>Configura los dos repartidores que Cocina mostrará para cada sucursal. Puedes cambiar nombre y teléfono cuando lo necesites sin editar código.</p></div></div>
-      <div className="riders-branches-grid">
-        {[['zakia','KYO Zákia'],['milenio','KYO Milenio']].map(([branch,label])=><div className={`riders-branch-card ${branch}`} key={branch}>
-          <div className="riders-branch-head"><MapPin/><div><small>SUCURSAL</small><strong>{label}</strong></div></div>
-          <div className="riders-list">
-            {[0,1].map(index=>{const rider=(deliveryRiders?.[branch]||defaultDeliveryRiders[branch])?.[index]||{name:'',phone:''};return <div className="rider-config-row" key={index}>
-              <b>{index+1}</b>
-              <label className="admin-field"><span>Nombre</span><input value={rider.name||''} onChange={e=>updateDeliveryRider(branch,index,'name',e.target.value)} placeholder={`Repartidor ${index+1}`}/></label>
-              <label className="admin-field"><span>WhatsApp / teléfono</span><input type="tel" value={rider.phone||''} onChange={e=>updateDeliveryRider(branch,index,'phone',e.target.value)} placeholder="4421234567"/></label>
-            </div>})}
-          </div>
-          <small className="rider-phone-note">Puedes escribir 10 dígitos, +52 o 52. Cocina lo convierte automáticamente al formato de WhatsApp.</small>
-        </div>)}
-      </div>
-    </section>
-
-    <section className="admin-settings-card">
-      <div className="settings-card-head"><span><Upload/></span><div><small>IMÁGENES DEL MENÚ</small><h2>Optimización de fotografías</h2><p>Las fotos nuevas se guardan automáticamente como WebP, a máximo 1200 px y con compresión para que el menú cargue más rápido.</p></div></div>
-      <div className="image-optimizer-box">
-        <div>
-          <strong>Optimizar imágenes existentes</strong>
-          <small>Convierte las fotografías que ya subiste desde el Panel. Las imágenes originales solo se borran después de actualizar correctamente el producto.</small>
+    <details className="admin-settings-card settings-collapsible">
+      <summary><div className="settings-card-head"><span><Clock3/></span><div><small>HORARIOS</small><h2>Horario de pedidos</h2><p>La app usa siempre la hora de Ciudad de México. Fuera de este horario los clientes no pueden agregar productos al carrito.</p></div></div><span className="settings-expand-label">Desplegar</span></summary>
+      <div className="settings-collapsible-body">
+        <div className="business-hours-editor">
+          {businessDayLabels.map(([day,label])=>{const h=businessHours?.[day]||defaultBusinessHours[day];return <div className={`business-day-row ${h.closed?'closed':''}`} key={day}>
+            <strong>{label}</strong>
+            <button type="button" className={`business-closed-toggle ${h.closed?'closed':''}`} onClick={()=>updateBusinessDay(day,'closed',!h.closed)}>{h.closed?'Cerrado':'Abierto'}</button>
+            <label><span>Abre</span><input type="time" disabled={h.closed} value={h.open||'13:00'} onChange={e=>updateBusinessDay(day,'open',e.target.value)}/></label>
+            <label><span>Cierra</span><input type="time" disabled={h.closed} value={h.close||'21:00'} onChange={e=>updateBusinessDay(day,'close',e.target.value)}/></label>
+          </div>})}
         </div>
-        <button type="button" className="primary image-optimize-btn" disabled={imageOptimizeBusy} onClick={optimizeExistingImages}>
-          {imageOptimizeBusy?`Optimizando ${imageOptimizeProgress.done}/${imageOptimizeProgress.total}`:'Optimizar imágenes existentes'}
-        </button>
+        <small className="business-timezone-note">Zona horaria fija: America/Mexico_City (CDMX)</small>
+        {sectionMessages.hours&&<div className="form-message">{sectionMessages.hours}</div>}
+        <div className="settings-section-save"><button className="primary" disabled={busySection==='hours'} onClick={()=>saveSection('hours',{business_hours:businessHours},'Horario guardado.')}><Save/> {busySection==='hours'?'Guardando...':'Guardar cambios'}</button></div>
       </div>
-      {imageOptimizeBusy&&<div className="image-optimize-progress"><i style={{width:`${imageOptimizeProgress.total?Math.round(imageOptimizeProgress.done/imageOptimizeProgress.total*100):0}%`}}/></div>}
-      {imageOptimizeMessage&&<div className="admin-points-message">{imageOptimizeMessage}</div>}
-    </section>
+    </details>
 
-    <section className="admin-settings-card">
-      <div className="settings-card-head"><span><Package/></span><div><small>KYO REWARDS</small><h2>Reward por puntos</h2><p>Escoge el producto que se regalará y cuántos puntos necesita el cliente para canjearlo.</p></div></div>
-      <div className="settings-two-columns">
-        <label className="admin-field"><span>Costo en puntos</span><input type="number" min="1" step="1" value={rewardPoints} onChange={e=>setRewardPoints(e.target.value)}/></label>
-        <label className="admin-field"><span>Producto gratis</span><select value={rewardProduct} onChange={e=>setRewardProduct(e.target.value)}><option value="">Selecciona un producto</option>{grouped.map(cat=><optgroup key={cat.id} label={cat.name}>{catalog.products.filter(p=>p.category===cat.name).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>)}</select></label>
+    <details className="admin-settings-card settings-collapsible riders-settings-card">
+      <summary><div className="settings-card-head"><span><Truck/></span><div><small>REPARTIDORES</small><h2>Contactos de reparto por sucursal</h2><p>Configura los dos repartidores que Cocina mostrará para cada sucursal.</p></div></div><span className="settings-expand-label">Desplegar</span></summary>
+      <div className="settings-collapsible-body">
+        <div className="riders-branches-grid">
+          {[['zakia','KYO Zákia'],['milenio','KYO Milenio']].map(([branch,label])=><div className={`riders-branch-card ${branch}`} key={branch}>
+            <div className="riders-branch-head"><MapPin/><div><small>SUCURSAL</small><strong>{label}</strong></div></div>
+            <div className="riders-list">
+              {[0,1].map(index=>{const rider=(deliveryRiders?.[branch]||defaultDeliveryRiders[branch])?.[index]||{name:'',phone:''};return <div className="rider-config-row" key={index}>
+                <b>{index+1}</b>
+                <label className="admin-field"><span>Nombre</span><input value={rider.name||''} onChange={e=>updateDeliveryRider(branch,index,'name',e.target.value)} placeholder={`Repartidor ${index+1}`}/></label>
+                <label className="admin-field"><span>WhatsApp / teléfono</span><input type="tel" value={rider.phone||''} onChange={e=>updateDeliveryRider(branch,index,'phone',e.target.value)} placeholder="4421234567"/></label>
+              </div>})}
+            </div>
+            <small className="rider-phone-note">Puedes escribir 10 dígitos, +52 o 52. Cocina lo convierte automáticamente al formato de WhatsApp.</small>
+          </div>)}
+        </div>
+        {sectionMessages.riders&&<div className="form-message">{sectionMessages.riders}</div>}
+        <div className="settings-section-save"><button className="primary" disabled={busySection==='riders'} onClick={()=>saveSection('riders',{delivery_riders:deliveryRiders},'Repartidores guardados.')}><Save/> {busySection==='riders'?'Guardando...':'Guardar cambios'}</button></div>
       </div>
-      {rewardProduct&&<div className="settings-reward-preview">{(()=>{const p=catalog.products.find(x=>x.id===rewardProduct);return p?<><img src={p.image||p.image_url}/><span><small>REWARD ACTUAL</small><strong>{p.name}</strong><em>{rewardPoints} KYO Points</em></span></>:null})()}</div>}
-    </section>
+    </details>
 
-    <section className="admin-settings-card">
-      <div className="settings-card-head"><span><Gift/></span><div><small>KYO POINTS</small><h2>Agregar puntos a un usuario</h2><p>Busca la cuenta por correo y suma puntos manualmente a su saldo.</p></div></div>
-      <div className="admin-points-form">
-        <label className="admin-field"><span>Correo del usuario</span><input type="email" value={pointsEmail} onChange={e=>setPointsEmail(e.target.value)} placeholder="cliente@correo.com"/></label>
-        <label className="admin-field"><span>Puntos a agregar</span><input type="number" min="1" step="1" value={pointsAmount} onChange={e=>setPointsAmount(e.target.value)} placeholder="100"/></label>
-        <button className="primary admin-add-points-btn" disabled={pointsBusy} onClick={addPointsToUser}>{pointsBusy?'Agregando...':'Agregar puntos'}</button>
+    <details className="admin-settings-card settings-collapsible">
+      <summary><div className="settings-card-head"><span><Upload/></span><div><small>IMÁGENES DEL MENÚ</small><h2>Optimización de fotografías</h2><p>Optimiza las fotografías existentes del menú.</p></div></div><span className="settings-expand-label">Desplegar</span></summary>
+      <div className="settings-collapsible-body">
+        <div className="image-optimizer-box">
+          <div><strong>Optimizar imágenes existentes</strong><small>Convierte las fotografías que ya subiste desde el Panel a WebP y máximo 1200 px.</small></div>
+          <button type="button" className="primary image-optimize-btn" disabled={imageOptimizeBusy} onClick={optimizeExistingImages}>{imageOptimizeBusy?`Optimizando ${imageOptimizeProgress.done}/${imageOptimizeProgress.total}`:'Optimizar imágenes existentes'}</button>
+        </div>
+        {imageOptimizeBusy&&<div className="image-optimize-progress"><i style={{width:`${imageOptimizeProgress.total?Math.round(imageOptimizeProgress.done/imageOptimizeProgress.total*100):0}%`}}/></div>}
+        {imageOptimizeMessage&&<div className="admin-points-message">{imageOptimizeMessage}</div>}
       </div>
-      {pointsMessage&&<div className="admin-points-message">{pointsMessage}</div>}
-    </section>
+    </details>
 
-    {message&&<div className="form-message">{message}</div>}
-    <div className="settings-save-bar"><button className="primary" disabled={busy||!rewardProduct} onClick={save}><Save/> {busy?'Guardando...':'Guardar configuración'}</button></div>
+    <details className="admin-settings-card settings-collapsible">
+      <summary><div className="settings-card-head"><span><Package/></span><div><small>KYO REWARDS</small><h2>Reward por puntos</h2><p>Escoge el producto que se regalará y cuántos puntos necesita el cliente para canjearlo.</p></div></div><span className="settings-expand-label">Desplegar</span></summary>
+      <div className="settings-collapsible-body">
+        <div className="settings-two-columns">
+          <label className="admin-field"><span>Costo en puntos</span><input type="number" min="1" step="1" value={rewardPoints} onChange={e=>setRewardPoints(e.target.value)}/></label>
+          <label className="admin-field"><span>Producto gratis</span><select value={rewardProduct} onChange={e=>setRewardProduct(e.target.value)}><option value="">Selecciona un producto</option>{grouped.map(cat=><optgroup key={cat.id} label={cat.name}>{catalog.products.filter(p=>p.category===cat.name).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>)}</select></label>
+        </div>
+        {rewardProduct&&<div className="settings-reward-preview">{(()=>{const p=catalog.products.find(x=>x.id===rewardProduct);return p?<><img src={p.image||p.image_url}/><span><small>REWARD ACTUAL</small><strong>{p.name}</strong><em>{rewardPoints} KYO Points</em></span></>:null})()}</div>}
+        {sectionMessages.reward&&<div className="form-message">{sectionMessages.reward}</div>}
+        <div className="settings-section-save"><button className="primary" disabled={busySection==='reward'||!rewardProduct} onClick={()=>saveSection('reward',{points_reward_cost:Math.max(1,Math.round(Number(rewardPoints||1))),points_reward_product_id:rewardProduct||null},'Reward guardado.')}><Save/> {busySection==='reward'?'Guardando...':'Guardar cambios'}</button></div>
+      </div>
+    </details>
+
+    <details className="admin-settings-card settings-collapsible">
+      <summary><div className="settings-card-head"><span><Gift/></span><div><small>KYO POINTS</small><h2>Agregar puntos a un usuario</h2><p>Busca la cuenta por correo y suma puntos manualmente a su saldo.</p></div></div><span className="settings-expand-label">Desplegar</span></summary>
+      <div className="settings-collapsible-body">
+        <div className="admin-points-form">
+          <label className="admin-field"><span>Correo del usuario</span><input type="email" value={pointsEmail} onChange={e=>setPointsEmail(e.target.value)} placeholder="cliente@correo.com"/></label>
+          <label className="admin-field"><span>Puntos a agregar</span><input type="number" min="1" step="1" value={pointsAmount} onChange={e=>setPointsAmount(e.target.value)} placeholder="100"/></label>
+          <button className="primary admin-add-points-btn" disabled={pointsBusy} onClick={addPointsToUser}>{pointsBusy?'Agregando...':'Agregar puntos'}</button>
+        </div>
+        {pointsMessage&&<div className="admin-points-message">{pointsMessage}</div>}
+      </div>
+    </details>
   </div>
 }
 function BranchFilter({value,onChange}){return <div className="admin-filter-row"><button className={value==='all'?'active':''} onClick={()=>onChange('all')}>Todas</button><button className={value==='zakia'?'active':''} onClick={()=>onChange('zakia')}>Zákia</button><button className={value==='milenio'?'active':''} onClick={()=>onChange('milenio')}>Milenio</button></div>}
