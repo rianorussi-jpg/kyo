@@ -233,13 +233,9 @@ function printKitchenSection(order,temp,popup=null){
   if(!section.order_items.length)return false
   const label=temp==='F'?'PRODUCTOS DE FRIO':'PRODUCTOS DE CALIENTE'
   const lines=[
-    ...ticketHeaderLines(order,'TICKET COCINA'),
     thermalCenter(`*** ${label} ***`),
     thermalRule('='),
     ...kitchenItemLines(section),
-    thermalCenter(`PAGO: ${paymentLabel(order)}`),
-    thermalRule('='),
-    thermalCenter(`*** ${label} ***`),
     '', '', '', ''
   ]
   openThermalPrint(order,lines.join('\n'),temp==='F'?'Cocina - Frio':'Cocina - Caliente',popup)
