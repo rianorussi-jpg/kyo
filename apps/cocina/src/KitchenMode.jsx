@@ -210,9 +210,9 @@ const thermalStyles=`
   }
 `
 
-function openThermalPrint(order,text,title){
+function openThermalPrint(order,text,title,popup=null){
   const no=String(order.order_number).padStart(4,'0')
-  const popup=window.open('','_blank','width=420,height=800')
+  popup=popup||window.open('','_blank','width=420,height=800')
   if(!popup){alert('Permite ventanas emergentes para imprimir el ticket.');return}
   const lines=thermalPlain(text).split('\n')
   const htmlLines=lines.map(line=>line.length
@@ -224,16 +224,45 @@ function openThermalPrint(order,text,title){
   popup.document.close()
 }
 
-function printKitchenTicket(order){
+function kitchenSectionOrder(order,temp){
+  return {...order,order_items:(order.order_items||[]).filter(i=>(i._kitchen_temp==='F'?'F':'C')===temp)}
+}
+
+function printKitchenSection(order,temp,popup=null){
+  const section=kitchenSectionOrder(order,temp)
+  if(!section.order_items.length)return false
+  const label=temp==='F'?'PRODUCTOS DE FRIO':'PRODUCTOS DE CALIENTE'
   const lines=[
     ...ticketHeaderLines(order,'TICKET COCINA'),
-    ...kitchenItemLines(order),
+    thermalCenter(`*** ${label} ***`),
+    thermalRule('='),
+    ...kitchenItemLines(section),
     thermalCenter(`PAGO: ${paymentLabel(order)}`),
     thermalRule('='),
-    thermalCenter('*** COCINA ***'),
+    thermalCenter(`*** ${label} ***`),
     '', '', '', ''
   ]
-  openThermalPrint(order,lines.join('\n'),'Cocina')
+  openThermalPrint(order,lines.join('\n'),temp==='F'?'Cocina - Frio':'Cocina - Caliente',popup)
+  return true
+}
+
+function printKitchenTicket(order){
+  const cold=order.order_items?.some(i=>i._kitchen_temp==='F')
+  const hot=order.order_items?.some(i=>i._kitchen_temp!=='F')
+  if(cold&&hot){
+    const coldPopup=window.open('','_blank','width=420,height=800')
+    const hotPopup=window.open('','_blank','width=420,height=800')
+    if(!coldPopup||!hotPopup){
+      coldPopup?.close();hotPopup?.close()
+      alert('Permite ventanas emergentes para imprimir los tickets de frio y caliente por separado.')
+      return
+    }
+    printKitchenSection(order,'F',coldPopup)
+    printKitchenSection(order,'C',hotPopup)
+    return
+  }
+  if(cold){printKitchenSection(order,'F');return}
+  printKitchenSection(order,'C')
 }
 
 function printSaleTicket(order){
@@ -340,7 +369,7 @@ export function KitchenMode({auth}){
     const productIds=[...new Set(allItems.map(i=>i.product_id).filter(Boolean))]
     const [{data:templates},{data:promoProducts}]=await Promise.all([
       templateIds.length?supabase.from('customization_templates').select('id,name,options').in('id',templateIds):Promise.resolve({data:[]}),
-      productIds.length?supabase.from('products').select('id,price,promo_3x2_eligible').in('id',productIds):Promise.resolve({data:[]})
+      productIds.length?supabase.from('products').select('id,price,promo_3x2_eligible,kitchen_temp').in('id',productIds):Promise.resolve({data:[]})
     ])
     const templateMap=new Map((templates||[]).map(t=>[String(t.id),t]))
     const productMap=new Map((promoProducts||[]).map(p=>[String(p.id),p]))
@@ -352,7 +381,7 @@ export function KitchenMode({auth}){
       })
       const extras=customs.reduce((sum,c)=>sum+customizationLineTotal(c),0)
       const product=productMap.get(String(item.product_id))
-      return {...item,customizations:customs,_base_price:Math.max(0,Number(item.unit_price||0)-extras),_extras_total:extras,_promo_eligible:!!product?.promo_3x2_eligible,_catalog_base_price:Number(product?.price??Math.max(0,Number(item.unit_price||0)-extras))}
+      return {...item,customizations:customs,_base_price:Math.max(0,Number(item.unit_price||0)-extras),_extras_total:extras,_promo_eligible:!!product?.promo_3x2_eligible,_catalog_base_price:Number(product?.price??Math.max(0,Number(item.unit_price||0)-extras)),_kitchen_temp:product?.kitchen_temp==='F'?'F':'C'}
     })}))
     setOrders(hydrated)
     setLoading(false)

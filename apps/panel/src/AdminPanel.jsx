@@ -740,6 +740,14 @@ function AdminMenuManager({catalog,onEdit,fixedBranch=null}){
     await catalog.refresh()
   }
 
+  const setKitchenTemp=async(product,kitchenTemp)=>{
+    const key=`temp:${product.id}`;setSaving(key)
+    const {error}=await supabase.from('products').update({kitchen_temp:kitchenTemp}).eq('id',product.id)
+    setSaving('')
+    if(error)return alert(error.message)
+    await catalog.refresh()
+  }
+
   const setProductBranch=async(product,branchId,available)=>{
     if(fixedBranch&&branchId!==fixedBranch)return
     const key=`${product.id}:${branchId}`;setSaving(key)
@@ -772,17 +780,17 @@ function AdminMenuManager({catalog,onEdit,fixedBranch=null}){
           <div className="admin-menu-category-head"><div><small>CATEGORÍA</small><h2>{cat.name}</h2></div><span>{products.length} producto{products.length===1?'':'s'}</span></div>
           {subs.length>0
             ?<>
-              {subs.map(sub=>{const items=products.filter(p=>p.subcategory===sub.name);return items.length?<div className="admin-subcategory-block" key={sub.id}><h3>{sub.name}</h3><div className="admin-product-grid">{items.map(product=><AdminProductCard key={product.id} product={product} branches={branches} saving={saving} setProductBranch={setProductBranch} setPromoProduct={!fixedBranch?setPromoProduct:null} onEdit={onEdit}/>)}</div></div>:null})}
-              {products.some(p=>!p.subcategory)&&<div className="admin-subcategory-block"><h3>Sin subcategoría</h3><div className="admin-product-grid">{products.filter(p=>!p.subcategory).map(product=><AdminProductCard key={product.id} product={product} branches={branches} saving={saving} setProductBranch={setProductBranch} setPromoProduct={!fixedBranch?setPromoProduct:null} onEdit={onEdit}/>)}</div></div>}
+              {subs.map(sub=>{const items=products.filter(p=>p.subcategory===sub.name);return items.length?<div className="admin-subcategory-block" key={sub.id}><h3>{sub.name}</h3><div className="admin-product-grid">{items.map(product=><AdminProductCard key={product.id} product={product} branches={branches} saving={saving} setProductBranch={setProductBranch} setPromoProduct={!fixedBranch?setPromoProduct:null} setKitchenTemp={!fixedBranch?setKitchenTemp:null} onEdit={onEdit}/>)}</div></div>:null})}
+              {products.some(p=>!p.subcategory)&&<div className="admin-subcategory-block"><h3>Sin subcategoría</h3><div className="admin-product-grid">{products.filter(p=>!p.subcategory).map(product=><AdminProductCard key={product.id} product={product} branches={branches} saving={saving} setProductBranch={setProductBranch} setPromoProduct={!fixedBranch?setPromoProduct:null} setKitchenTemp={!fixedBranch?setKitchenTemp:null} onEdit={onEdit}/>)}</div></div>}
             </>
-            :<div className="admin-product-grid">{products.map(product=><AdminProductCard key={product.id} product={product} branches={branches} saving={saving} setProductBranch={setProductBranch} setPromoProduct={!fixedBranch?setPromoProduct:null} onEdit={onEdit}/>)}</div>}
+            :<div className="admin-product-grid">{products.map(product=><AdminProductCard key={product.id} product={product} branches={branches} saving={saving} setProductBranch={setProductBranch} setPromoProduct={!fixedBranch?setPromoProduct:null} setKitchenTemp={!fixedBranch?setKitchenTemp:null} onEdit={onEdit}/>)}</div>}
         </section>)}
       </div>
       :<CategoryManager catalog={catalog}/>}
   </>
 }
 
-function AdminProductCard({product,branches,saving,setProductBranch,setPromoProduct,onEdit}){
+function AdminProductCard({product,branches,saving,setProductBranch,setPromoProduct,setKitchenTemp,onEdit}){
   return <article className={`admin-product-card-branch ${!product.available?'disabled':''}`}>
     <img src={product.image||product.image_url} alt={product.name}/>
     <div className="admin-product-card-info">
@@ -791,6 +799,7 @@ function AdminProductCard({product,branches,saving,setProductBranch,setPromoProd
       <strong>{money(product.price)}</strong>
       <span>{product.available?'Disponible en menú':'Agotado globalmente'}</span>
       {setPromoProduct&&<button type="button" className={`promo-product-admin-toggle ${product.promo_3x2_eligible?'active':''}`} disabled={saving===`promo:${product.id}`} onClick={()=>setPromoProduct(product,!product.promo_3x2_eligible)}><Percent size={16}/><span><small>PROMO 3×2</small><strong>{saving===`promo:${product.id}`?'Guardando...':product.promo_3x2_eligible?'Participa':'No participa'}</strong></span></button>}
+      {setKitchenTemp&&<div className="kitchen-temp-admin"><span><small>ESTACIÓN DE COCINA</small><strong>{product.kitchen_temp==='F'?'Frío':'Caliente'}</strong></span><div><button type="button" className={product.kitchen_temp==='F'?'active cold':''} disabled={saving===`temp:${product.id}`} onClick={()=>setKitchenTemp(product,'F')}>F</button><button type="button" className={product.kitchen_temp!=='F'?'active hot':''} disabled={saving===`temp:${product.id}`} onClick={()=>setKitchenTemp(product,'C')}>C</button></div></div>}
       <div className="branch-availability-row">
         {branches.map(b=>{const available=product.branchAvailability?.[b.id]!==false;const key=`${product.id}:${b.id}`;return <button type="button" key={b.id} disabled={saving===key||!product.available} className={available?'available':'unavailable'} onClick={()=>setProductBranch(product,b.id,!available)}><span>{b.short||b.name}</span><b>{saving===key?'Guardando...':available?'Disponible':'No disponible'}</b></button>})}
       </div>

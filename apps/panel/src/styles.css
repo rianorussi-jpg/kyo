@@ -3675,3 +3675,6 @@ main{
   .delivery-zone-new,.delivery-zone-row{grid-template-columns:1fr}
   .delivery-zone-actions{display:grid;grid-template-columns:1fr 1fr}
 }
+
+/* F/C station selector for kitchen tickets */
+.kitchen-temp-admin{margin-top:9px;border:1px solid #ddd;border-radius:10px;padding:8px 9px;display:flex;align-items:center;justify-content:space-between;gap:10px;background:#fff}.kitchen-temp-admin>span{display:grid;gap:1px}.kitchen-temp-admin small{font-size:8px;letter-spacing:.1em;font-weight:900;color:#777}.kitchen-temp-admin strong{font-size:11px}.kitchen-temp-admin>div{display:flex;gap:5px}.kitchen-temp-admin button{width:34px;height:30px;border-radius:8px;border:1px solid #d8d5d0;background:#f7f6f4;font-weight:900;color:#777}.kitchen-temp-admin button.active{color:#111;background:#fff;border-color:#111;box-shadow:0 0 0 1px #111 inset}.kitchen-temp-admin button:disabled{opacity:.5}.kitchen-temp-admin button.cold.active{background:#eef6ff}.kitchen-temp-admin button.hot.active{background:#fff2ec}
