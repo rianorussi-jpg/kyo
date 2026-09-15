@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="index,follow" />
+  <meta name="description" content="Solicita la eliminación de tu cuenta de KYO Sushi MX y de los datos personales asociados." />
+  <title>Eliminar cuenta | KYO Sushi MX</title>
+  <style>
+    :root{
+      --bg:#0b0b0c;
+      --card:#151517;
+      --card-2:#1c1c1f;
+      --text:#f7f7f7;
+      --muted:#b6b6bc;
+      --line:#2c2c31;
+      --accent:#ff7a00;
+      --accent-2:#ff9d3b;
+      --danger:#ff5d5d;
+      --ok:#4bd37b;
+      --radius:22px;
+      --shadow:0 20px 60px rgba(0,0,0,.28);
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      margin:0;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(255,122,0,.10), transparent 34rem),
+        var(--bg);
+      color:var(--text);
+      line-height:1.6;
+    }
+    a{color:inherit}
+    .wrap{width:min(980px,calc(100% - 32px));margin:auto}
+    header{
+      padding:28px 0 14px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+    }
+    .brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.02em}
+    .brand-mark{
+      width:38px;height:38px;border-radius:12px;
+      display:grid;place-items:center;
+      background:linear-gradient(135deg,var(--accent),var(--accent-2));
+      color:#111;font-weight:900;
+      box-shadow:0 10px 30px rgba(255,122,0,.24);
+    }
+    main{padding:54px 0 80px}
+    .eyebrow{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:7px 11px;border:1px solid rgba(255,122,0,.32);
+      border-radius:999px;color:#ffc185;background:rgba(255,122,0,.08);
+      font-size:.82rem;font-weight:750;text-transform:uppercase;letter-spacing:.08em;
+    }
+    h1{font-size:clamp(2.2rem,6vw,4.5rem);line-height:1.02;margin:18px 0 18px;letter-spacing:-.04em}
+    .lead{font-size:1.12rem;color:var(--muted);max-width:760px;margin:0 0 34px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:28px 0}
+    .card{
+      background:linear-gradient(180deg,var(--card),#111113);
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      padding:24px;
+      box-shadow:var(--shadow);
+    }
+    .card h2,.section h2{margin:0 0 10px;font-size:1.35rem;letter-spacing:-.02em}
+    .card p,.section p{color:var(--muted);margin:0 0 14px}
+    .steps{margin:16px 0 0;padding-left:20px;color:#e8e8ea}
+    .steps li{margin:7px 0}
+    .pill{
+      display:inline-block;margin-top:10px;padding:6px 10px;
+      border-radius:999px;background:rgba(75,211,123,.09);
+      border:1px solid rgba(75,211,123,.25);color:#93efb3;font-size:.82rem;font-weight:700;
+    }
+    .section{margin-top:20px}
+    .notice{
+      border-left:4px solid var(--accent);
+      background:rgba(255,122,0,.08);
+      border-radius:14px;padding:16px 18px;margin:18px 0;color:#e9e9ec;
+    }
+    form{display:grid;gap:14px;margin-top:18px}
+    label{font-weight:700;font-size:.93rem}
+    input,textarea{
+      width:100%;margin-top:7px;padding:14px 15px;
+      border-radius:13px;border:1px solid #34343a;
+      background:#0f0f11;color:#fff;outline:none;font:inherit;
+    }
+    input:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,122,0,.10)}
+    textarea{min-height:110px;resize:vertical}
+    .check{display:flex;gap:10px;align-items:flex-start;font-weight:500;color:var(--muted)}
+    .check input{width:auto;margin:5px 0 0}
+    button{
+      border:0;border-radius:14px;padding:14px 18px;
+      background:linear-gradient(135deg,var(--accent),var(--accent-2));
+      color:#111;font:inherit;font-weight:850;cursor:pointer;
+      box-shadow:0 12px 28px rgba(255,122,0,.18);
+    }
+    button:hover{filter:brightness(1.05)}
+    .small{font-size:.88rem;color:#929299}
+    .data-list{display:grid;gap:10px;margin:14px 0 0;padding:0;list-style:none}
+    .data-list li{
+      padding:13px 14px;border-radius:13px;background:var(--card-2);
+      border:1px solid var(--line);color:#dedee2
+    }
+    .data-list strong{color:#fff}
+    .warning{color:#ffd0d0;border-color:rgba(255,93,93,.25);background:rgba(255,93,93,.06)}
+    footer{border-top:1px solid rgba(255,255,255,.07);padding:26px 0 42px;color:#8e8e95;font-size:.9rem}
+    footer .links{display:flex;gap:16px;flex-wrap:wrap;margin-top:7px}
+    footer a{color:#cfcfd4}
+    .hidden-admin{
+      display:none;
+    }
+    @media(max-width:760px){
+      .grid{grid-template-columns:1fr}
+      main{padding-top:38px}
+      .card{padding:20px}
+    }
+  </style>
+</head>
+<body>
+  <!--
+    IMPORTANTE ANTES DE PUBLICAR:
+    1) Reemplaza SOPORTE_EMAIL_AQUI en el script al final por el correo oficial de soporte/privacidad de KYO Sushi.
+    2) Publica esta página en una URL pública y estable, idealmente:
+       https://kyosushi.com.mx/eliminar-cuenta
+  -->
+  <header>
+    <div class="wrap">
+      <div class="brand"><span class="brand-mark">K</span><span>KYO Sushi MX</span></div>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap">
+      <span class="eyebrow">Cuenta y privacidad</span>
+      <h1>Eliminar tu cuenta de KYO Sushi MX</h1>
+      <p class="lead">
+        Desde esta página puedes iniciar la eliminación de tu cuenta y de los datos personales asociados,
+        incluso si ya no tienes instalada la aplicación.
+      </p>
+
+      <div class="grid">
+        <section class="card">
+          <h2>Desde la aplicación</h2>
+          <p>Si todavía tienes acceso a KYO Sushi MX, puedes iniciar la eliminación directamente desde tu cuenta.</p>
+          <ol class="steps">
+            <li>Abre <strong>KYO Sushi MX</strong>.</li>
+            <li>Entra a <strong>Perfil → Preferencias</strong>.</li>
+            <li>Selecciona <strong>Eliminar cuenta</strong>.</li>
+            <li>Confirma la eliminación.</li>
+          </ol>
+          <span class="pill">Método directo desde la app</span>
+        </section>
+
+        <section class="card">
+          <h2>Solicitarla desde la web</h2>
+          <p>
+            Si no puedes entrar a la aplicación, completa estos datos y podrás enviar la solicitud
+            desde el correo asociado a tu cuenta.
+          </p>
+
+          <form id="deleteForm">
+            <label>
+              Correo asociado a tu cuenta
+              <input id="email" type="email" autocomplete="email" required placeholder="tu@correo.com" />
+            </label>
+
+            <label>
+              Nombre (opcional)
+              <input id="name" type="text" autocomplete="name" placeholder="Tu nombre" />
+            </label>
+
+            <label>
+              Comentario adicional (opcional)
+              <textarea id="message" placeholder="Puedes agregar cualquier dato que nos ayude a identificar tu cuenta."></textarea>
+            </label>
+
+            <label class="check">
+              <input id="confirm" type="checkbox" required />
+              <span>Confirmo que deseo solicitar la eliminación de mi cuenta de KYO Sushi MX y de los datos personales asociados.</span>
+            </label>
+
+            <button type="submit">Solicitar eliminación de cuenta</button>
+            <p class="small">
+              La solicitud debe enviarse desde el correo asociado a tu cuenta cuando sea posible, para poder verificar que eres el titular.
+              No necesitas volver a instalar la aplicación.
+            </p>
+          </form>
+        </section>
+      </div>
+
+      <section class="card section">
+        <h2>Qué datos se eliminan</h2>
+        <p>Cuando se completa la eliminación de tu cuenta, se eliminan o desvinculan los datos personales asociados a ella, incluyendo:</p>
+        <ul class="data-list">
+          <li><strong>Cuenta y perfil:</strong> acceso a la cuenta, nombre, correo, teléfono y datos de perfil.</li>
+          <li><strong>Direcciones:</strong> direcciones guardadas, referencias y notas personales de entrega asociadas a la cuenta.</li>
+          <li><strong>KYO Rewards:</strong> beneficios, puntos o saldo promocional asociados a la cuenta.</li>
+          <li><strong>Datos asociados a la cuenta:</strong> la vinculación entre tu identidad y los registros que ya no sea necesario conservar.</li>
+        </ul>
+      </section>
+
+      <section class="card section">
+        <h2>Datos que pueden conservarse</h2>
+        <p>
+          Algunos registros de pedidos ya finalizados pueden conservarse cuando sea necesario para fines operativos,
+          administrativos, fiscales, de seguridad, prevención de fraude o cumplimiento de obligaciones legales.
+        </p>
+        <div class="notice">
+          Cuando se conserva un pedido histórico, deja de estar vinculado a tu cuenta eliminada y se retiran del registro
+          la dirección de entrega, referencias y notas personales de entrega, salvo información que deba conservarse por obligación legal.
+          Cualquier información sujeta a conservación legal se mantendrá únicamente durante el plazo exigido por la normativa aplicable.
+        </div>
+      </section>
+
+      <section class="card section">
+        <h2>Pedidos activos</h2>
+        <p>
+          Si tienes un pedido activo, la eliminación no puede completarse hasta que ese pedido finalice,
+          ya que KYO Sushi necesita temporalmente los datos necesarios para prepararlo, entregarlo o tenerlo listo para recolección.
+          Una vez finalizado, podrás completar la eliminación.
+        </p>
+      </section>
+
+      <section class="card section">
+        <h2>Verificación y procesamiento</h2>
+        <p>
+          Podemos solicitar una verificación razonable para confirmar que la solicitud corresponde al titular de la cuenta.
+          Una vez verificada, procesaremos la eliminación en un periodo razonablemente rápido, sujeto únicamente a las
+          obligaciones de conservación indicadas anteriormente.
+        </p>
+        <p class="small">
+          Esta página es el recurso web externo de KYO Sushi MX para solicitar la eliminación de cuentas y datos asociados.
+        </p>
+      </section>
+
+      <div class="notice warning hidden-admin" id="adminWarning">
+        Configuración pendiente: antes de publicar esta página debes indicar el correo oficial de soporte de KYO Sushi.
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <strong>KYO Sushi MX</strong>
+      <div class="links">
+        <a href="/privacy">Política de Privacidad</a>
+        <a href="/terms">Términos y Condiciones</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // CAMBIA SOLO ESTA LÍNEA antes de subir la página:
+    const SUPPORT_EMAIL = "SOPORTE_EMAIL_AQUI";
+
+    const form = document.getElementById("deleteForm");
+    const adminWarning = document.getElementById("adminWarning");
+
+    if (SUPPORT_EMAIL === "SOPORTE_EMAIL_AQUI") {
+      adminWarning.classList.remove("hidden-admin");
+    }
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+
+      if (SUPPORT_EMAIL === "rianorussi@gmail.com") {
+        alert("Antes de publicar esta página, configura el correo oficial de soporte en SUPPORT_EMAIL.");
+        return;
+      }
+
+      const accountEmail = document.getElementById("email").value.trim();
+      const name = document.getElementById("name").value.trim();
+      const message = document.getElementById("message").value.trim();
+
+      const subject = "Solicitud de eliminación de cuenta - KYO Sushi MX";
+      const body = [
+        "Solicito la eliminación de mi cuenta de KYO Sushi MX y de los datos personales asociados.",
+        "",
+        "Correo asociado a la cuenta: " + accountEmail,
+        name ? "Nombre: " + name : "",
+        "",
+        message ? "Comentario adicional: " + message : "",
+        "",
+        "Confirmo que deseo iniciar el proceso de eliminación de mi cuenta."
+      ].filter(Boolean).join("\n");
+
+      window.location.href =
+        "mailto:" + encodeURIComponent(SUPPORT_EMAIL) +
+        "?subject=" + encodeURIComponent(subject) +
+        "&body=" + encodeURIComponent(body);
+    });
+  </script>
+</body>
+</html>
