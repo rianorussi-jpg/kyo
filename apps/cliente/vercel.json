@@ -1,5 +1,16 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/eliminar-cuenta",
+      "destination": "/eliminar-cuenta/index.html"
+    },
+    {
+      "source": "/eliminar-cuenta/",
+      "destination": "/eliminar-cuenta/index.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }
