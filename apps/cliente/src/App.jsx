@@ -4,7 +4,7 @@ import { Routes, Route, NavLink, Navigate, useLocation, useNavigate, useSearchPa
 import {
   Home, Gift, ShoppingBag, User, Search, BookOpen, MapPin, ChevronRight, Flame, Plus, Minus,
   ArrowLeft, CreditCard, Banknote, Store, Bike, Check, LogOut, Settings,
-  Trash2, Navigation, ChevronDown, Sparkles, RefreshCw, X, MapPinned, Pencil, Clock3, CircleHelp, MessageCircle
+  Trash2, Navigation, ChevronDown, Sparkles, RefreshCw, X, MapPinned, Pencil, Clock3, CircleHelp, MessageCircle, ReceiptText
 } from 'lucide-react'
 import { fallbackCategories, fallbackProducts, branches as fallbackBranches } from './data'
 import { supabase, supabaseConfigured } from './supabase'
@@ -14,6 +14,46 @@ import { loadStripe } from '@stripe/stripe-js'
 const money = n => `$${Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 })}`
 const clientStatus = (status,fulfillment='delivery') => status === 'pending_payment' ? 'Esperando pago' : status === 'delivered' ? 'Entregado' : status === 'cancelled' ? 'Cancelado' : fulfillment==='pickup' && ['ready','on_the_way'].includes(status) ? 'Listo para recoger' : status === 'on_the_way' ? 'En camino' : 'Preparando'
 const emptyAddress = { label:'Casa', street:'', exterior_number:'', interior_number:'', neighborhood:'', postal_code:'', branch_id:'', notes:'' }
+
+const SAT_TAX_REGIMES=[
+  ['601','General de Ley Personas Morales'],
+  ['603','Personas Morales con Fines no Lucrativos'],
+  ['605','Sueldos y Salarios e Ingresos Asimilados a Salarios'],
+  ['606','Arrendamiento'],
+  ['608','Demás ingresos'],
+  ['612','Personas Físicas con Actividades Empresariales y Profesionales'],
+  ['616','Sin obligaciones fiscales'],
+  ['621','Incorporación Fiscal'],
+  ['625','Actividades Empresariales con ingresos a través de Plataformas Tecnológicas'],
+  ['626','Régimen Simplificado de Confianza']
+]
+const CFDI_USES=[
+  ['G01','Adquisición de mercancías'],
+  ['G02','Devoluciones, descuentos o bonificaciones'],
+  ['G03','Gastos en general'],
+  ['I01','Construcciones'],
+  ['I02','Mobiliario y equipo de oficina por inversiones'],
+  ['I03','Equipo de transporte'],
+  ['I04','Equipo de cómputo y accesorios'],
+  ['I05','Dados, troqueles, moldes, matrices y herramental'],
+  ['I06','Comunicaciones telefónicas'],
+  ['I07','Comunicaciones satelitales'],
+  ['I08','Otra maquinaria y equipo'],
+  ['D01','Honorarios médicos, dentales y gastos hospitalarios'],
+  ['D02','Gastos médicos por incapacidad o discapacidad'],
+  ['D03','Gastos funerales'],
+  ['D04','Donativos'],
+  ['D05','Intereses reales efectivamente pagados por créditos hipotecarios'],
+  ['D06','Aportaciones voluntarias al SAR'],
+  ['D07','Primas por seguros de gastos médicos'],
+  ['D08','Gastos de transportación escolar obligatoria'],
+  ['D09','Depósitos en cuentas para el ahorro'],
+  ['D10','Pagos por servicios educativos'],
+  ['S01','Sin efectos fiscales'],
+  ['CP01','Pagos'],
+  ['CN01','Nómina']
+]
+const emptyBillingData=email=>({label:'Mis datos fiscales',rfc:'',legal_name:'',postal_code:'',tax_regime:'',cfdi_use:'G03',email:email||''})
 
 function newRequestId(){
   if(globalThis.crypto?.randomUUID)return globalThis.crypto.randomUUID()
@@ -1261,7 +1301,27 @@ function StripePaymentForm({order,fulfillmentType,chargeTotal,onPaid,onBack}){
 }
 
 function CheckoutPage({cart,total,rawTotal,promo,auth,catalog,addressBook,deliveryZones,destination,setDestination,selectedAddress,branch,setCart,storeStatus}){
-  const nav=useNavigate();const requestKeyRef=useRef(newRequestId());const [type,setType]=useState(destination.mode||'delivery');const [selected,setSelected]=useState(destination.addressId||'');const [pickupBranch,setPickupBranch]=useState(destination.branchId||'zakia');const [payment,setPayment]=useState('cash');const [saveCard,setSaveCard]=useState(false);const [notes,setNotes]=useState('');const [tipPercent,setTipPercent]=useState(0);const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [adding,setAdding]=useState(false);const [stripeSession,setStripeSession]=useState(null);const [firstOrderGift,setFirstOrderGift]=useState(0)
+  const nav=useNavigate()
+  const requestKeyRef=useRef(newRequestId())
+  const [type,setType]=useState(destination.mode||'delivery')
+  const [selected,setSelected]=useState(destination.addressId||'')
+  const [pickupBranch,setPickupBranch]=useState(destination.branchId||'zakia')
+  const [payment,setPayment]=useState('cash')
+  const [saveCard,setSaveCard]=useState(false)
+  const [notes,setNotes]=useState('')
+  const [tipPercent,setTipPercent]=useState(0)
+  const [busy,setBusy]=useState(false)
+  const [error,setError]=useState('')
+  const [adding,setAdding]=useState(false)
+  const [stripeSession,setStripeSession]=useState(null)
+  const [firstOrderGift,setFirstOrderGift]=useState(0)
+  const [invoiceRequested,setInvoiceRequested]=useState(false)
+  const [billingProfiles,setBillingProfiles]=useState([])
+  const [billingProfilesLoading,setBillingProfilesLoading]=useState(false)
+  const [billingProfileId,setBillingProfileId]=useState('')
+  const [saveBilling,setSaveBilling]=useState(true)
+  const [billingDraft,setBillingDraft]=useState(()=>emptyBillingData(auth.user?.email||''))
+
   useEffect(()=>{
     let alive=true
     const loadFirstOrderGift=async()=>{
@@ -1274,7 +1334,24 @@ function CheckoutPage({cart,total,rawTotal,promo,auth,catalog,addressBook,delive
     loadFirstOrderGift()
     return()=>{alive=false}
   },[auth.user?.id])
+
+  useEffect(()=>{
+    let alive=true
+    const loadBillingProfiles=async()=>{
+      if(!supabase||!auth.user?.id){if(alive)setBillingProfiles([]);return}
+      setBillingProfilesLoading(true)
+      const {data,error}=await supabase.from('billing_profiles').select('id,label,rfc,legal_name,postal_code,tax_regime,cfdi_use,email,updated_at').order('updated_at',{ascending:false})
+      if(!alive)return
+      setBillingProfilesLoading(false)
+      if(error){console.error('billing_profiles failed',error);setBillingProfiles([]);return}
+      setBillingProfiles(data||[])
+    }
+    loadBillingProfiles()
+    return()=>{alive=false}
+  },[auth.user?.id])
+
   if(!auth.user)return <Navigate to="/login" replace/>
+
   const currentAddress=addressBook.addresses.find(a=>a.id===selected)||null
   const addressReady=type!=='delivery'||!!currentAddress?.delivery_zone_id
   const deliveryFee=type==='delivery'&&addressReady?Number(currentAddress?.delivery_fee||0):0
@@ -1285,24 +1362,91 @@ function CheckoutPage({cart,total,rawTotal,promo,auth,catalog,addressBook,delive
   const tipAmount=Math.round((productTotalAfterPromo*effectiveTipPercent/100)*100)/100
   const orderTotal=Math.max(0,productTotalAfterPromo-appliedFirstOrderGift)+packagingFee+deliveryFee
   const chargeTotal=orderTotal+tipAmount
+
   const chooseAddress=a=>{setSelected(a.id);setDestination({mode:'delivery',addressId:a.id,branchId:a.branch_id})}
+  const chooseBillingProfile=profile=>{
+    setBillingProfileId(profile.id)
+    setBillingDraft({
+      label:profile.label||'Mis datos fiscales',
+      rfc:profile.rfc||'',
+      legal_name:profile.legal_name||'',
+      postal_code:profile.postal_code||'',
+      tax_regime:profile.tax_regime||'',
+      cfdi_use:profile.cfdi_use||'G03',
+      email:profile.email||auth.user?.email||''
+    })
+  }
+  const startNewBillingProfile=()=>{
+    setBillingProfileId('')
+    setBillingDraft(emptyBillingData(auth.user?.email||''))
+  }
+  const toggleInvoice=checked=>{
+    setInvoiceRequested(checked)
+    setError('')
+    if(checked&&billingProfiles.length&&!billingProfileId)chooseBillingProfile(billingProfiles[0])
+    if(checked&&!billingDraft.email)setBillingDraft(d=>({...d,email:auth.user?.email||''}))
+  }
+  const updateBilling=(field,value)=>setBillingDraft(d=>({...d,[field]:value}))
+  const validateBilling=()=>{
+    const rfc=String(billingDraft.rfc||'').trim().toUpperCase().replace(/\s+/g,'')
+    if(![12,13].includes(rfc.length))return 'Revisa el RFC. Debe tener 12 o 13 caracteres.'
+    if(!String(billingDraft.legal_name||'').trim())return 'Escribe el nombre o razón social tal como aparece en tu constancia fiscal.'
+    if(!/^\d{5}$/.test(String(billingDraft.postal_code||'').trim()))return 'El código postal fiscal debe tener 5 dígitos.'
+    if(!billingDraft.tax_regime)return 'Selecciona tu régimen fiscal.'
+    if(!billingDraft.cfdi_use)return 'Selecciona el uso de CFDI.'
+    if(!/^\S+@\S+\.\S+$/.test(String(billingDraft.email||'').trim()))return 'Escribe un correo válido para recibir tu factura.'
+    return ''
+  }
+
   const finish=async()=>{
-    setError('');if(!supabase)return setError('Supabase no está configurado.');if(!cart.length)return
+    setError('')
+    if(!supabase)return setError('Supabase no está configurado.')
+    if(!cart.length)return
     if(!catalog.settings?.business_hours)return setError('Estamos cargando el horario de KYO. Intenta nuevamente en un momento.')
     if(!storeStatusFromHours(catalog.settings.business_hours).open)return setError('KYO está cerrado en este momento. Intenta nuevamente dentro de nuestro horario de servicio.')
-    const minimum=Number(catalog.settings?.minimum_order||200);if(rawTotal<minimum)return setError(`El pedido mínimo es de ${money(minimum)}. Te faltan ${money(minimum-rawTotal)} en productos.`)
+    const minimum=Number(catalog.settings?.minimum_order||200)
+    if(rawTotal<minimum)return setError(`El pedido mínimo es de ${money(minimum)}. Te faltan ${money(minimum-rawTotal)} en productos.`)
     if(type==='delivery'&&!currentAddress)return setError('Agrega una dirección para continuar.')
     if(type==='delivery'&&!currentAddress.delivery_zone_id)return setError('Edita tu dirección y selecciona una colonia disponible para calcular el envío.')
+    if(invoiceRequested){
+      const invoiceError=validateBilling()
+      if(invoiceError)return setError(invoiceError)
+    }
+
     setBusy(true)
     const chosenBranch=type==='delivery'?currentAddress.branch_id:pickupBranch
     const items=cart.map(i=>({product_id:i.productId||i.id,quantity:i.reward?1:i.qty,reward_voucher_id:i.rewardVoucherId||null,customizations:i.selectedCustomizations||[],item_note:i.itemNote||''}))
     const {data,error:e1}=await supabase.rpc('create_order',{p_branch_id:chosenBranch,p_fulfillment_type:type,p_address_id:type==='delivery'?selected:null,p_delivery_notes:notes,p_payment_method:payment,p_items:items,p_idempotency_key:requestKeyRef.current,p_tip_percentage:effectiveTipPercent})
     if(e1){console.error('create_order failed',e1);setBusy(false);setError(`${friendlyError(e1,'order')} [${e1.code||'RPC'}: ${e1.message||'sin detalle'}]`);return}
     let order=Array.isArray(data)?data[0]:data
+
     const {data:packagingData,error:packagingError}=await supabase.rpc('apply_promo_packaging',{p_order_id:order?.id,p_items:items})
     if(packagingError){console.error('apply_promo_packaging failed',packagingError);setBusy(false);setError(`El pedido se creó, pero no pudimos aplicar el empaque 3×2. [${packagingError.code||'RPC'}: ${packagingError.message||'sin detalle'}]`);return}
     const packagingResult=Array.isArray(packagingData)?packagingData[0]:packagingData
     if(packagingResult){order={...order,total:Number(packagingResult.total??order?.total),payment_total:Number(packagingResult.payment_total??order?.payment_total),promo_packaging_count:Number(packagingResult.promo_packaging_count||0),promo_packaging_fee:Number(packagingResult.promo_packaging_fee||0)}}
+
+    const invoiceArgs=invoiceRequested?{
+      p_order_id:order?.id,
+      p_requested:true,
+      p_profile_id:billingProfileId||null,
+      p_save_profile:Boolean(saveBilling),
+      p_label:String(billingDraft.label||'Mis datos fiscales').trim()||'Mis datos fiscales',
+      p_rfc:String(billingDraft.rfc||'').trim().toUpperCase().replace(/\s+/g,''),
+      p_legal_name:String(billingDraft.legal_name||'').trim(),
+      p_postal_code:String(billingDraft.postal_code||'').trim(),
+      p_tax_regime:billingDraft.tax_regime,
+      p_cfdi_use:billingDraft.cfdi_use,
+      p_email:String(billingDraft.email||'').trim().toLowerCase()
+    }:{
+      p_order_id:order?.id,
+      p_requested:false,
+      p_profile_id:null,
+      p_save_profile:false,
+      p_label:'',p_rfc:'',p_legal_name:'',p_postal_code:'',p_tax_regime:'',p_cfdi_use:'',p_email:''
+    }
+    const {error:invoiceRpcError}=await supabase.rpc('set_order_invoice_request',invoiceArgs)
+    if(invoiceRpcError){console.error('set_order_invoice_request failed',invoiceRpcError);setBusy(false);setError(`El pedido se creó, pero no pudimos guardar la solicitud de factura. [${invoiceRpcError.code||'RPC'}: ${invoiceRpcError.message||'sin detalle'}]`);return}
+
     setDestination(type==='delivery'?{mode:'delivery',addressId:selected,branchId:chosenBranch}:{mode:'pickup',addressId:null,branchId:pickupBranch})
     if(payment!=='card'){
       setBusy(false);setCart([]);nav('/success',{state:{orderNumber:order?.order_number,fulfillmentType:type}});return
@@ -1312,9 +1456,47 @@ function CheckoutPage({cart,total,rawTotal,promo,auth,catalog,addressBook,delive
     if(stripeError||!stripeData?.clientSecret||!stripeData?.publishableKey){setError(stripeData?.error||stripeError?.message||'No pudimos iniciar el pago con Stripe. Intenta nuevamente.');return}
     setStripeSession({order,clientSecret:stripeData.clientSecret,customerSessionClientSecret:stripeData.customerSessionClientSecret||undefined,stripePromise:loadStripe(stripeData.publishableKey),chargeTotal:Number(stripeData.amount||chargeTotal),fulfillmentType:type})
   }
+
   const paymentCompleted=order=>{setCart([]);nav('/success',{state:{orderNumber:order?.order_number,fulfillmentType:type,paymentProcessing:true,orderId:order?.id}})}
   if(stripeSession)return <Elements stripe={stripeSession.stripePromise} options={{clientSecret:stripeSession.clientSecret,customerSessionClientSecret:stripeSession.customerSessionClientSecret,appearance:{theme:'night',variables:{colorPrimary:'#ff6a00',colorBackground:'#171717',colorText:'#ffffff',colorDanger:'#ff5a52',borderRadius:'12px'}}}}><StripePaymentForm order={stripeSession.order} fulfillmentType={stripeSession.fulfillmentType} chargeTotal={stripeSession.chargeTotal} onPaid={paymentCompleted} onBack={()=>setStripeSession(null)}/></Elements>
-  return <main className="checkout-page"><div className="simple-head"><button onClick={()=>nav(-1)}><ArrowLeft/></button><h1>Finalizar pedido</h1><span/></div><section className="checkout-section"><h2>¿Cómo quieres tu pedido?</h2><div className="type-toggle"><button onClick={()=>setType('delivery')} className={type==='delivery'?'active':''}><Bike/><span><strong>Delivery</strong><small>El costo se calcula según tu colonia</small></span></button><button onClick={()=>setType('pickup')} className={type==='pickup'?'active':''}><Store/><span><strong>Recoger</strong><small>20–30 min</small></span></button></div></section>{type==='delivery'?<section className="checkout-section"><div className="checkout-title-row"><h2>Dirección de entrega</h2><button className="text-btn" onClick={()=>setAdding(true)}><Plus size={16}/> Agregar</button></div>{addressBook.addresses.map(a=><button className={`address-option ${selected===a.id?'active':''}`} onClick={()=>chooseAddress(a)} key={a.id}><MapPin/><span><strong>{a.label}</strong><small>{formatAddress(a)}</small>{a.notes&&<em>{a.notes}</em>}</span>{selected===a.id&&<Check/>}</button>)}{addressBook.addresses.length===0&&<button className="save-login" onClick={()=>setAdding(true)}>+ Agregar dirección aquí</button>}</section>:<section className="checkout-section"><h2>¿En qué sucursal recoges?</h2>{catalog.branches.map(b=><button className={`address-option ${pickupBranch===b.id?'active':''}`} onClick={()=>setPickupBranch(b.id)} key={b.id}><Store/><span><strong>{b.name}</strong><small>{b.address}</small></span>{pickupBranch===b.id&&<Check/>}</button>)}</section>}<section className="checkout-section"><h2>Método de pago</h2><button className={`pay-option ${payment==='card'?'active':''}`} onClick={()=>setPayment('card')}><CreditCard/><span><strong>Tarjeta / Apple Pay</strong><small>Pago seguro procesado por Stripe</small></span>{payment==='card'&&<Check/>}</button><button className={`pay-option ${payment==='terminal'?'active':''}`} onClick={()=>setPayment('terminal')}><CreditCard/><span><strong>Terminal</strong><small>Paga con tu tarjeta en físico al recibir el pedido</small></span>{payment==='terminal'&&<Check/>}</button><button className={`pay-option ${payment==='cash'?'active':''}`} onClick={()=>setPayment('cash')}><Banknote/><span><strong>Efectivo</strong><small>Paga al recibir tu pedido</small></span>{payment==='cash'&&<Check/>}</button>{payment==='card'&&<label className="stripe-save-card-check"><input type="checkbox" checked={saveCard} onChange={e=>setSaveCard(e.target.checked)}/><span><strong>Guardar mi tarjeta para próximos pedidos</strong><small>Stripe la guarda de forma segura; KYO no almacena los datos de la tarjeta.</small></span></label>}<label className="admin-field"><span>Notas del pedido</span><textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Sin cebolla, agregar soya..."/></label></section><section className="checkout-section tip-section"><div className="tip-title"><div><h2>Propina para el team</h2><p>La propina es opcional y es para el team KYO. No forma parte de la venta de KYO.</p></div>{tipAmount>0&&<strong>{money(tipAmount)}</strong>}</div><div className="tip-options"><button className={tipPercent===0?'active':''} onClick={()=>setTipPercent(0)}>Sin propina</button>{[5,10,20].map(v=><button key={v} className={tipPercent===v?'active':''} onClick={()=>setTipPercent(v)}><strong>{v}%</strong><small>{money(productTotalAfterPromo*v/100)}</small></button>)}</div></section>{rawTotal<Number(catalog.settings?.minimum_order||200)&&<div className="minimum-order-notice"><strong>Pedido mínimo {money(catalog.settings?.minimum_order||200)}</strong><span>Agrega {money(Number(catalog.settings?.minimum_order||200)-rawTotal)} más en productos para continuar.</span></div>}{type==='delivery'&&!addressReady&&<div className="delivery-zone-warning"><MapPin/><span><strong>Esta dirección necesita una colonia válida</strong><small>Edítala o agrega una nueva dirección para calcular el envío.</small></span></div>}{storeStatus?.ready&&!storeStatus?.open&&<div className="store-cart-closed"><Clock3/><span><strong>KYO está cerrado</strong><small>No es posible confirmar pedidos fuera del horario de servicio.</small></span></div>}{error&&<div className="form-message checkout-message">{error}</div>}<section className="summary checkout-summary"><div><span>Productos ({cart.reduce((a,i)=>a+i.qty,0)})</span><strong>{money(rawTotal)}</strong></div>{promo?.discount>0&&<div className="promo-discount-row"><span>Promo 3×2</span><strong>-{money(promo.discount)}</strong></div>}{appliedFirstOrderGift>0&&<div className="promo-discount-row"><span>Regalo primer pedido</span><strong>-{money(appliedFirstOrderGift)}</strong></div>}{packagingFee>0&&<div className="promo-packaging-row"><span>Empaque promo 3×2 <small>· {promo.packagingCount} × $14</small></span><strong>{money(packagingFee)}</strong></div>}{type==='delivery'&&<div><span>Envío · {currentAddress?.neighborhood||'colonia'}</span><strong>{addressReady?money(deliveryFee):'Por calcular'}</strong></div>}{tipAmount>0&&<div className="tip-summary-row"><span>Propina para el team ({effectiveTipPercent}%)</span><strong>{money(tipAmount)}</strong></div>}<div className="total"><span>{payment==='card'?'Total a cobrar':'Total a pagar'}</span><strong>{money(chargeTotal)}</strong></div>{tipAmount>0&&<small className="tip-accounting-note">Productos con promo: {money(productTotalAfterPromo)} · Empaque 3×2: {money(packagingFee)} · Envío: {money(deliveryFee)} · Propina calculada solo sobre productos: {money(tipAmount)}</small>}</section><div className="checkout-bar"><button disabled={busy||!storeStatus?.ready||!storeStatus?.open||!addressReady||rawTotal<Number(catalog.settings?.minimum_order||200)} className="primary full" onClick={finish}>{busy?'Preparando...':payment==='card'?`Continuar al pago · ${money(chargeTotal)}`:`Confirmar pedido · ${money(chargeTotal)}`}</button></div>{adding&&<AddressModal auth={auth} deliveryZones={deliveryZones} onClose={()=>setAdding(false)} onSaved={async a=>{await addressBook.refresh();chooseAddress(a);setAdding(false)}}/>}</main>
+
+  return <main className="checkout-page">
+    <div className="simple-head"><button onClick={()=>nav(-1)}><ArrowLeft/></button><h1>Finalizar pedido</h1><span/></div>
+    <section className="checkout-section"><h2>¿Cómo quieres tu pedido?</h2><div className="type-toggle"><button onClick={()=>setType('delivery')} className={type==='delivery'?'active':''}><Bike/><span><strong>Delivery</strong><small>El costo se calcula según tu colonia</small></span></button><button onClick={()=>setType('pickup')} className={type==='pickup'?'active':''}><Store/><span><strong>Recoger</strong><small>20–30 min</small></span></button></div></section>
+    {type==='delivery'?<section className="checkout-section"><div className="checkout-title-row"><h2>Dirección de entrega</h2><button className="text-btn" onClick={()=>setAdding(true)}><Plus size={16}/> Agregar</button></div>{addressBook.addresses.map(a=><button className={`address-option ${selected===a.id?'active':''}`} onClick={()=>chooseAddress(a)} key={a.id}><MapPin/><span><strong>{a.label}</strong><small>{formatAddress(a)}</small>{a.notes&&<em>{a.notes}</em>}</span>{selected===a.id&&<Check/>}</button>)}{addressBook.addresses.length===0&&<button className="save-login" onClick={()=>setAdding(true)}>+ Agregar dirección aquí</button>}</section>:<section className="checkout-section"><h2>¿En qué sucursal recoges?</h2>{catalog.branches.map(b=><button className={`address-option ${pickupBranch===b.id?'active':''}`} onClick={()=>setPickupBranch(b.id)} key={b.id}><Store/><span><strong>{b.name}</strong><small>{b.address}</small></span>{pickupBranch===b.id&&<Check/>}</button>)}</section>}
+    <section className="checkout-section"><h2>Método de pago</h2><button className={`pay-option ${payment==='card'?'active':''}`} onClick={()=>setPayment('card')}><CreditCard/><span><strong>Tarjeta / Apple Pay</strong><small>Pago seguro procesado por Stripe</small></span>{payment==='card'&&<Check/>}</button><button className={`pay-option ${payment==='terminal'?'active':''}`} onClick={()=>setPayment('terminal')}><CreditCard/><span><strong>Terminal</strong><small>Paga con tu tarjeta en físico al recibir el pedido</small></span>{payment==='terminal'&&<Check/>}</button><button className={`pay-option ${payment==='cash'?'active':''}`} onClick={()=>setPayment('cash')}><Banknote/><span><strong>Efectivo</strong><small>Paga al recibir tu pedido</small></span>{payment==='cash'&&<Check/>}</button>{payment==='card'&&<label className="stripe-save-card-check"><input type="checkbox" checked={saveCard} onChange={e=>setSaveCard(e.target.checked)}/><span><strong>Guardar mi tarjeta para próximos pedidos</strong><small>Stripe la guarda de forma segura; KYO no almacena los datos de la tarjeta.</small></span></label>}<label className="admin-field"><span>Notas del pedido</span><textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Sin cebolla, agregar soya..."/></label></section>
+    <section className="checkout-section tip-section"><div className="tip-title"><div><h2>Propina para el team</h2><p>La propina es opcional y es para el team KYO. No forma parte de la venta de KYO.</p></div>{tipAmount>0&&<strong>{money(tipAmount)}</strong>}</div><div className="tip-options"><button className={tipPercent===0?'active':''} onClick={()=>setTipPercent(0)}>Sin propina</button>{[5,10,20].map(v=><button key={v} className={tipPercent===v?'active':''} onClick={()=>setTipPercent(v)}><strong>{v}%</strong><small>{money(productTotalAfterPromo*v/100)}</small></button>)}</div></section>
+
+    <section className={`checkout-section invoice-section ${invoiceRequested?'active':''}`}>
+      <label className="invoice-toggle-row">
+        <input type="checkbox" checked={invoiceRequested} onChange={e=>toggleInvoice(e.target.checked)}/>
+        <span className="invoice-toggle-icon"><ReceiptText/></span>
+        <span><strong>Facturar pedido</strong><small>Solicita tu factura y deja tus datos fiscales listos con el pedido.</small></span>
+      </label>
+      {invoiceRequested&&<div className="invoice-fields-wrap">
+        {billingProfilesLoading?<div className="invoice-loading"><RefreshCw className="spin"/> Cargando datos guardados...</div>:billingProfiles.length>0&&<div className="invoice-saved-block"><div className="invoice-block-head"><span>Datos guardados</span><button type="button" onClick={startNewBillingProfile}>+ Nuevos datos</button></div><div className="invoice-profile-list">{billingProfiles.map(profile=><button type="button" key={profile.id} className={billingProfileId===profile.id?'active':''} onClick={()=>chooseBillingProfile(profile)}><strong>{profile.label||profile.legal_name}</strong><small>{profile.rfc} · CP {profile.postal_code}</small>{billingProfileId===profile.id&&<Check size={16}/>}</button>)}</div></div>}
+        {!billingProfilesLoading&&billingProfiles.length===0&&<div className="invoice-new-note">Agrega tus datos una vez y puedes guardarlos para próximos pedidos.</div>}
+        <div className="invoice-form-grid">
+          <label className="admin-field invoice-wide"><span>Nombre para identificar estos datos</span><input value={billingDraft.label} onChange={e=>updateBilling('label',e.target.value)} placeholder="Ej. Empresa / Personal"/></label>
+          <label className="admin-field"><span>RFC</span><input value={billingDraft.rfc} maxLength={13} autoCapitalize="characters" onChange={e=>updateBilling('rfc',e.target.value.toUpperCase())} placeholder="XAXX010101000"/></label>
+          <label className="admin-field"><span>Código postal fiscal</span><input value={billingDraft.postal_code} inputMode="numeric" maxLength={5} onChange={e=>updateBilling('postal_code',e.target.value.replace(/\D/g,'').slice(0,5))} placeholder="76269"/></label>
+          <label className="admin-field invoice-wide"><span>Nombre / Razón social</span><input value={billingDraft.legal_name} onChange={e=>updateBilling('legal_name',e.target.value)} placeholder="Tal como aparece en tu constancia fiscal"/></label>
+          <label className="admin-field invoice-wide"><span>Régimen fiscal</span><select value={billingDraft.tax_regime} onChange={e=>updateBilling('tax_regime',e.target.value)}><option value="">Selecciona tu régimen fiscal</option>{SAT_TAX_REGIMES.map(([code,label])=><option key={code} value={code}>{code} · {label}</option>)}</select></label>
+          <label className="admin-field invoice-wide"><span>Uso de CFDI</span><select value={billingDraft.cfdi_use} onChange={e=>updateBilling('cfdi_use',e.target.value)}>{CFDI_USES.map(([code,label])=><option key={code} value={code}>{code} · {label}</option>)}</select></label>
+          <label className="admin-field invoice-wide"><span>Correo para recibir la factura</span><input type="email" value={billingDraft.email} onChange={e=>updateBilling('email',e.target.value)} placeholder="correo@ejemplo.com"/></label>
+        </div>
+        <label className="invoice-save-check"><input type="checkbox" checked={saveBilling} onChange={e=>setSaveBilling(e.target.checked)}/><span><strong>{billingProfileId?'Guardar cambios para próximos pedidos':'Guardar estos datos para próximos pedidos'}</strong><small>Así no tendrás que volver a capturarlos en tu siguiente compra.</small></span></label>
+      </div>}
+    </section>
+
+    {rawTotal<Number(catalog.settings?.minimum_order||200)&&<div className="minimum-order-notice"><strong>Pedido mínimo {money(catalog.settings?.minimum_order||200)}</strong><span>Agrega {money(Number(catalog.settings?.minimum_order||200)-rawTotal)} más en productos para continuar.</span></div>}
+    {type==='delivery'&&!addressReady&&<div className="delivery-zone-warning"><MapPin/><span><strong>Esta dirección necesita una colonia válida</strong><small>Edítala o agrega una nueva dirección para calcular el envío.</small></span></div>}
+    {storeStatus?.ready&&!storeStatus?.open&&<div className="store-cart-closed"><Clock3/><span><strong>KYO está cerrado</strong><small>No es posible confirmar pedidos fuera del horario de servicio.</small></span></div>}
+    {error&&<div className="form-message checkout-message">{error}</div>}
+    <section className="summary checkout-summary"><div><span>Productos ({cart.reduce((a,i)=>a+i.qty,0)})</span><strong>{money(rawTotal)}</strong></div>{promo?.discount>0&&<div className="promo-discount-row"><span>Promo 3×2</span><strong>-{money(promo.discount)}</strong></div>}{appliedFirstOrderGift>0&&<div className="promo-discount-row"><span>Regalo primer pedido</span><strong>-{money(appliedFirstOrderGift)}</strong></div>}{packagingFee>0&&<div className="promo-packaging-row"><span>Empaque promo 3×2 <small>· {promo.packagingCount} × $14</small></span><strong>{money(packagingFee)}</strong></div>}{type==='delivery'&&<div><span>Envío · {currentAddress?.neighborhood||'colonia'}</span><strong>{addressReady?money(deliveryFee):'Por calcular'}</strong></div>}{tipAmount>0&&<div className="tip-summary-row"><span>Propina para el team ({effectiveTipPercent}%)</span><strong>{money(tipAmount)}</strong></div>}<div className="total"><span>{payment==='card'?'Total a cobrar':'Total a pagar'}</span><strong>{money(chargeTotal)}</strong></div>{tipAmount>0&&<small className="tip-accounting-note">Productos con promo: {money(productTotalAfterPromo)} · Empaque 3×2: {money(packagingFee)} · Envío: {money(deliveryFee)} · Propina calculada solo sobre productos: {money(tipAmount)}</small>}</section>
+    <div className="checkout-bar"><button disabled={busy||!storeStatus?.ready||!storeStatus?.open||!addressReady||rawTotal<Number(catalog.settings?.minimum_order||200)} className="primary full" onClick={finish}>{busy?'Preparando...':payment==='card'?`Continuar al pago · ${money(chargeTotal)}`:`Confirmar pedido · ${money(chargeTotal)}`}</button></div>
+    {adding&&<AddressModal auth={auth} deliveryZones={deliveryZones} onClose={()=>setAdding(false)} onSaved={async a=>{await addressBook.refresh();chooseAddress(a);setAdding(false)}}/>}
+  </main>
 }
 
 function SuccessPage({setCart}){

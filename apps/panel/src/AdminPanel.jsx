@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { RefreshCw, ShieldCheck, LayoutDashboard, Utensils, LogOut, Plus, Package, MapPin, Clock3, Pencil, X, Upload, Trash2, Save, ClipboardList, DollarSign, RotateCcw, RotateCw, ZoomIn, ZoomOut, Settings, Gift, BarChart3, TrendingUp, Users, ShoppingBag, Truck, Store, Download, Percent, ReceiptText, CalendarDays, CreditCard, BellRing, Send } from 'lucide-react'
+import { RefreshCw, ShieldCheck, LayoutDashboard, Utensils, LogOut, Plus, Package, MapPin, Clock3, Pencil, X, Upload, Trash2, Save, ClipboardList, DollarSign, RotateCcw, RotateCw, ZoomIn, ZoomOut, Settings, Gift, BarChart3, TrendingUp, Users, ShoppingBag, Truck, Store, Download, Percent, ReceiptText, CalendarDays, CreditCard, BellRing, Send, Mail, Copy, CheckCircle2 } from 'lucide-react'
 import { supabase, MENU_BUCKET } from './supabase'
 
 const money = n => `$${Number(n || 0).toLocaleString('es-MX', {maximumFractionDigits: 2})}`
@@ -82,7 +82,7 @@ export function AdminPanel({auth,catalog}){
     if(status==='delivered')auth.refreshProfile()
   }
 
-  const title=tab==='orders'?'Pedidos':tab==='records'?'Registros':tab==='stats'?'Estadísticas':tab==='notifications'?'Notificaciones':tab==='settings'?'Configuración':'Menú'
+  const title=tab==='orders'?'Pedidos':tab==='records'?'Registros':tab==='stats'?'Estadísticas':tab==='notifications'?'Notificaciones':tab==='billing'?'Facturación':tab==='settings'?'Configuración':'Menú'
 
   return <main className="admin-shell">
     <aside className="admin-side">
@@ -94,6 +94,7 @@ export function AdminPanel({auth,catalog}){
         <button className={tab==='stats'?'active':''} onClick={()=>setTab('stats')}><BarChart3/> Estadísticas</button>
         <button className={tab==='menu'?'active':''} onClick={()=>setTab('menu')}><Utensils/> Menú</button>
         {!isBranchManager&&<button className={tab==='notifications'?'active':''} onClick={()=>setTab('notifications')}><BellRing/> Notificaciones</button>}
+        {!isBranchManager&&<button className={tab==='billing'?'active':''} onClick={()=>setTab('billing')}><ReceiptText/> Facturación</button>}
         {!isBranchManager&&<button className={tab==='settings'?'active':''} onClick={()=>setTab('settings')}><Settings/> Configuración</button>}
       </nav>
       <button className="admin-logout" onClick={()=>supabase.auth.signOut()}><LogOut/> Cerrar sesión</button>
@@ -112,6 +113,8 @@ export function AdminPanel({auth,catalog}){
             ?<AdminStats orders={orders} fixedBranch={panelBranch}/>
           :tab==='notifications'&&!isBranchManager
             ?<AdminNotifications/>
+            :tab==='billing'&&!isBranchManager
+              ?<AdminBilling orders={orders} onRefresh={loadOrders}/>
             :tab==='settings'&&!isBranchManager
               ?<AdminSettings catalog={catalog}/>
               :<AdminMenuManager catalog={catalog} onEdit={isBranchManager?null:setEditing} fixedBranch={panelBranch}/>}
@@ -231,6 +234,98 @@ function AdminNotifications(){
       <div className="notification-auto-list">
         <div><b>En camino</b><span><strong>Tu pedido está en camino</strong><small>Se envía al cambiar a on_the_way.</small></span></div>
         <div><b>Entregado</b><span><strong>Tu pedido se ha entregado</strong><small>Se envía al cambiar a delivered.</small></span></div>
+      </div>
+    </section>
+  </div>
+}
+
+
+function AdminBilling({orders,onRefresh}){
+  const [filter,setFilter]=useState('requested')
+  const [busyId,setBusyId]=useState(null)
+  const [message,setMessage]=useState('')
+  const invoiceOrders=[...(orders||[])].filter(o=>o.invoice_requested).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))
+  const requested=invoiceOrders.filter(o=>(o.invoice_status||'requested')==='requested')
+  const sent=invoiceOrders.filter(o=>o.invoice_status==='sent')
+  const visible=filter==='all'?invoiceOrders:filter==='sent'?sent:requested
+
+  const taxRegimeLabel=code=>({
+    '601':'General de Ley Personas Morales','603':'Personas Morales con Fines no Lucrativos','605':'Sueldos y Salarios','606':'Arrendamiento','608':'Demás ingresos','612':'Actividades Empresariales y Profesionales','616':'Sin obligaciones fiscales','621':'Incorporación Fiscal','625':'Plataformas Tecnológicas','626':'Régimen Simplificado de Confianza'
+  }[code]||code||'—')
+  const cfdiLabel=code=>({G01:'Adquisición de mercancías',G02:'Devoluciones, descuentos o bonificaciones',G03:'Gastos en general',S01:'Sin efectos fiscales',CP01:'Pagos',CN01:'Nómina'}[code]||code||'—')
+  const paymentLabel=o=>o.payment_method==='card'?(o.payment_status==='paid'?'Tarjeta · pagado':'Tarjeta · pago pendiente'):o.payment_method==='terminal'?'Terminal':'Efectivo'
+
+  const setInvoiceStatus=async(order,status)=>{
+    setBusyId(order.id);setMessage('')
+    const {error}=await supabase.rpc('admin_set_invoice_status',{p_order_id:order.id,p_status:status})
+    setBusyId(null)
+    if(error){setMessage(error.message||'No se pudo actualizar la factura.');return}
+    setMessage(status==='sent'?`Pedido #${String(order.order_number).padStart(4,'0')} marcado como factura enviada.`:'Solicitud reabierta como pendiente.')
+    onRefresh?.()
+  }
+
+  const invoiceText=o=>[
+    `Pedido #${String(o.order_number).padStart(4,'0')}`,
+    `RFC: ${o.invoice_rfc||''}`,
+    `Nombre / Razón social: ${o.invoice_legal_name||''}`,
+    `CP fiscal: ${o.invoice_postal_code||''}`,
+    `Régimen fiscal: ${o.invoice_tax_regime||''} · ${taxRegimeLabel(o.invoice_tax_regime)}`,
+    `Uso CFDI: ${o.invoice_cfdi_use||''} · ${cfdiLabel(o.invoice_cfdi_use)}`,
+    `Correo: ${o.invoice_email||''}`,
+    `Total pedido: ${money(Number(o.payment_total||0))}`
+  ].join('\n')
+
+  const copyInvoice=async o=>{
+    try{await navigator.clipboard.writeText(invoiceText(o));setMessage(`Datos del pedido #${String(o.order_number).padStart(4,'0')} copiados.`)}
+    catch{setMessage('No se pudieron copiar los datos automáticamente.')}
+  }
+
+  const mailHref=o=>{
+    const subject=`Factura KYO · Pedido #${String(o.order_number).padStart(4,'0')}`
+    const body=`Hola,\n\nAdjuntamos la factura correspondiente a tu pedido #${String(o.order_number).padStart(4,'0')}.\n\nGracias por elegir KYO Sushi.`
+    return `mailto:${encodeURIComponent(o.invoice_email||'')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+  }
+
+  return <div className="admin-billing-page">
+    <div className="billing-kpis">
+      <article><ReceiptText/><span><small>SOLICITUDES</small><strong>{invoiceOrders.length}</strong></span></article>
+      <article className="pending"><Clock3/><span><small>PENDIENTES</small><strong>{requested.length}</strong></span></article>
+      <article className="sent"><CheckCircle2/><span><small>ENVIADAS</small><strong>{sent.length}</strong></span></article>
+    </div>
+
+    <section className="admin-settings-card billing-list-card">
+      <div className="settings-card-head billing-head">
+        <span><ReceiptText/></span>
+        <div><small>FACTURACIÓN</small><h2>Pedidos que solicitaron factura</h2><p>Aquí tienes los datos fiscales capturados por el cliente y el correo al que debe enviarse su factura.</p></div>
+      </div>
+      <div className="billing-toolbar">
+        <div className="admin-filter-row">{[['requested','Pendientes'],['sent','Enviadas'],['all','Todas']].map(([value,label])=><button key={value} className={filter===value?'active':''} onClick={()=>setFilter(value)}>{label}</button>)}</div>
+        <small>{visible.length} solicitud{visible.length===1?'':'es'}</small>
+      </div>
+      {message&&<div className="form-message billing-message">{message}</div>}
+      <div className="billing-order-list">
+        {visible.map(o=><article className={`billing-order-card ${o.invoice_status==='sent'?'is-sent':''}`} key={o.id}>
+          <div className="billing-order-top">
+            <div><small>PEDIDO</small><strong>#{String(o.order_number).padStart(4,'0')}</strong><span>{new Date(o.created_at).toLocaleString('es-MX')} · KYO {o.branch_id==='zakia'?'Zákia':'Milenio'}</span></div>
+            <div className="billing-order-status"><b className={o.invoice_status==='sent'?'sent':'requested'}>{o.invoice_status==='sent'?'Factura enviada':'Pendiente de factura'}</b><small>{paymentLabel(o)}</small></div>
+          </div>
+          <div className="billing-client-line"><span><small>CLIENTE</small><strong>{o.profiles?.full_name||'Cliente KYO'}</strong>{o.profiles?.phone&&<em>{o.profiles.phone}</em>}</span><span><small>TOTAL DEL PEDIDO</small><strong>{money(Number(o.payment_total||o.total||0))}</strong></span></div>
+          <div className="billing-data-grid">
+            <div><small>RFC</small><strong>{o.invoice_rfc||'—'}</strong></div>
+            <div><small>NOMBRE / RAZÓN SOCIAL</small><strong>{o.invoice_legal_name||'—'}</strong></div>
+            <div><small>CÓDIGO POSTAL FISCAL</small><strong>{o.invoice_postal_code||'—'}</strong></div>
+            <div><small>RÉGIMEN FISCAL</small><strong>{o.invoice_tax_regime||'—'} · {taxRegimeLabel(o.invoice_tax_regime)}</strong></div>
+            <div><small>USO CFDI</small><strong>{o.invoice_cfdi_use||'—'} · {cfdiLabel(o.invoice_cfdi_use)}</strong></div>
+            <div><small>CORREO PARA FACTURA</small><strong>{o.invoice_email||'—'}</strong></div>
+          </div>
+          <div className="billing-actions">
+            <button type="button" onClick={()=>copyInvoice(o)}><Copy/> Copiar datos</button>
+            {o.invoice_email&&<a href={mailHref(o)}><Mail/> Abrir correo</a>}
+            {o.invoice_status==='sent'?<button type="button" disabled={busyId===o.id} onClick={()=>setInvoiceStatus(o,'requested')}><RotateCcw/> Reabrir pendiente</button>:<button type="button" className="primary" disabled={busyId===o.id} onClick={()=>setInvoiceStatus(o,'sent')}><CheckCircle2/> {busyId===o.id?'Guardando...':'Marcar enviada'}</button>}
+          </div>
+          {o.invoice_status==='sent'&&o.invoice_sent_at&&<small className="billing-sent-at">Marcada como enviada: {new Date(o.invoice_sent_at).toLocaleString('es-MX')}</small>}
+        </article>)}
+        {!visible.length&&<div className="billing-empty"><ReceiptText/><strong>No hay solicitudes aquí</strong><span>{filter==='requested'?'Cuando un cliente marque “Facturar pedido”, aparecerá en esta sección.':'No hay facturas con este estado.'}</span></div>}
       </div>
     </section>
   </div>
