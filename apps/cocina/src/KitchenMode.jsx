@@ -35,8 +35,8 @@ function playKitchenAlarmPulse(ctx){
       osc.connect(gain)
       gain.connect(ctx.destination)
       gain.gain.setValueAtTime(0.0001,at)
-      gain.gain.linearRampToValueAtTime(0.2,at+0.025)
-      gain.gain.setValueAtTime(0.2,at+0.16)
+      gain.gain.linearRampToValueAtTime(0.34,at+0.025)
+      gain.gain.setValueAtTime(0.34,at+0.16)
       gain.gain.exponentialRampToValueAtTime(0.0001,at+0.24)
       osc.start(at)
       osc.stop(at+0.25)
@@ -357,7 +357,7 @@ export function KitchenGate({auth,children}){
   if(!auth.profile?.kitchen_branch && !auth.profile?.is_admin)return <main className="kitchen-login"><ChefHat size={48}/><h1>Cuenta sin sucursal de cocina</h1><p>Asigna <b>zakia</b> o <b>milenio</b> a esta cuenta desde Supabase.</p><button className="primary" onClick={()=>supabase.auth.signOut()}>Cerrar sesión</button></main>
   return children
 }
-function KitchenLogin(){const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [error,setError]=useState('');const [busy,setBusy]=useState(false);const submit=async e=>{e.preventDefault();unlockKitchenAudio();setBusy(true);const {error}=await supabase.auth.signInWithPassword({email,password});setBusy(false);if(error)setError(error.message)};return <main className="kitchen-login"><form className="kitchen-login-card" onSubmit={submit}><ChefHat size={42}/><span>MODO COCINA</span><h1>KYO</h1><p>Entra con la cuenta de tu sucursal.</p><label>Correo<input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="zakia@kyosushi.mx"/></label><label>Contraseña<input type="password" required value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<div className="form-message">{error}</div>}<button className="primary full" disabled={busy}>{busy?'Entrando...':'Entrar a cocina'}</button></form></main>}
+function KitchenLogin(){const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [error,setError]=useState('');const [busy,setBusy]=useState(false);const submit=async e=>{e.preventDefault();await unlockKitchenAudio();setBusy(true);const {error}=await supabase.auth.signInWithPassword({email,password});setBusy(false);if(error)setError(error.message)};return <main className="kitchen-login"><form className="kitchen-login-card" onSubmit={submit}><ChefHat size={42}/><span>MODO COCINA</span><h1>KYO</h1><p>Entra con la cuenta de tu sucursal.</p><label>Correo<input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="zakia@kyosushi.mx"/></label><label>Contraseña<input type="password" required value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<div className="form-message">{error}</div>}<button className="primary full" disabled={busy}>{busy?'Entrando...':'Entrar a cocina'}</button></form></main>}
 
 export function KitchenMode({auth}){
   const branch=auth.profile?.kitchen_branch||'zakia'
@@ -369,6 +369,7 @@ export function KitchenMode({auth}){
   const [lastSyncAt,setLastSyncAt]=useState(null)
   const [syncError,setSyncError]=useState('')
   const [alarmBlocked,setAlarmBlocked]=useState(false)
+  const [audioReady,setAudioReady]=useState(false)
   const [nowMs,setNowMs]=useState(Date.now())
   const loadRequestRef=useRef(0)
   const branchRef=useRef(branch)
@@ -379,6 +380,33 @@ export function KitchenMode({auth}){
     const timer=setInterval(()=>setNowMs(Date.now()),1000)
     return()=>clearInterval(timer)
   },[])
+
+  useEffect(()=>{
+    let disposed=false
+    const checkAudio=async()=>{
+      const ctx=await unlockKitchenAudio()
+      if(disposed)return
+      const ready=!!ctx&&ctx.state==='running'
+      setAudioReady(ready)
+      setAlarmBlocked(!ready)
+    }
+    checkAudio()
+    return()=>{disposed=true}
+  },[])
+
+  const activateKitchenAudio=async()=>{
+    const ctx=await unlockKitchenAudio()
+    const ready=!!ctx&&ctx.state==='running'
+    setAudioReady(ready)
+    setAlarmBlocked(!ready)
+    if(ready){
+      // Feedback confirms that the browser has really enabled sound. If a new
+      // order is already waiting for acknowledgement, the alarm effect below
+      // immediately takes over and keeps repeating until Enterado.
+      playKitchenAlarmPulse(ctx)
+    }
+    return ready
+  }
 
   const loadRiders=async()=>{
     if(!supabase)return
@@ -571,33 +599,32 @@ export function KitchenMode({auth}){
     }
 
     stopAlarm()
-    if(!unacknowledgedPreparingKey){setAlarmBlocked(false);return}
+    if(!unacknowledgedPreparingKey){
+      setAlarmBlocked(false)
+      return
+    }
 
     let disposed=false
     const startAlarm=async()=>{
       if(disposed||alarmIntervalRef.current)return
-      const ctx=await unlockKitchenAudio()
-      if(disposed)return
-      if(!ctx||ctx.state!=='running'){
+      const ctx=getKitchenAudio()
+      if(!audioReady||!ctx||ctx.state!=='running'){
         setAlarmBlocked(true)
+        setAudioReady(false)
         return
       }
       setAlarmBlocked(false)
       playKitchenAlarmPulse(ctx)
       alarmIntervalRef.current=setInterval(()=>playKitchenAlarmPulse(ctx),1450)
     }
-    const onUserGesture=()=>{startAlarm()}
 
     startAlarm()
-    window.addEventListener('pointerdown',onUserGesture)
-    window.addEventListener('keydown',onUserGesture)
     return()=>{
       disposed=true
       stopAlarm()
-      window.removeEventListener('pointerdown',onUserGesture)
-      window.removeEventListener('keydown',onUserGesture)
     }
-  },[unacknowledgedPreparingKey])
+  },[unacknowledgedPreparingKey,audioReady])
+
 
   const acknowledgeOrder=async order=>{
     if(!order?.id||order.status!=='preparing'||order.kitchen_acknowledged_at)return true
@@ -663,8 +690,9 @@ export function KitchenMode({auth}){
       :'Preparando sincronización'
 
   return <main className="kitchen-shell">
+    {!audioReady&&<div className="kitchen-audio-gate" role="dialog" aria-modal="true"><section><div className="kitchen-audio-gate-icon"><VolumeX/></div><span>ALERTA DE COCINA</span><h2>Activa el sonido antes de recibir pedidos</h2><p>El navegador necesita una activación manual una sola vez. Después, cada pedido nuevo sonará desde que entra en <b>Preparando</b> y no se callará hasta tocar <b>MUTE · Enterado</b> en ese pedido.</p><button onClick={activateKitchenAudio}>Activar alarmas de cocina</button><small>Este paso evita que el primer pedido quede en silencio por el bloqueo de audio del navegador.</small></section></div>}
     <header className="kitchen-head"><div><span>MODO COCINA</span><h1>{branchName(branch)}</h1><p>Pedidos en tiempo real · cada pedido nuevo requiere confirmación de Enterado.</p></div><div className="kitchen-head-actions"><div className={`kitchen-sync-pill ${visualSyncState}`} title={syncError||syncDetail}><i/><div><strong>{syncTitle}</strong><small>{syncDetail}</small></div></div><button onClick={()=>{load();loadRiders()}} title="Actualizar"><RefreshCw className={loading?'spin':''}/></button><button onClick={()=>supabase.auth.signOut()} title="Cerrar sesión"><LogOut/></button></div></header>
-    {alarmBlocked&&unacknowledgedPreparing.length>0&&<div className="kitchen-audio-warning"><VolumeX/><div><strong>El navegador bloqueó el audio automático</strong><small>Toca cualquier parte de la pantalla una vez. Después, las alarmas seguirán sonando solas hasta marcar cada pedido como Enterado.</small></div></div>}
+    {alarmBlocked&&audioReady&&unacknowledgedPreparing.length>0&&<div className="kitchen-audio-warning"><VolumeX/><div><strong>La alarma perdió permiso de audio</strong><small>Activa nuevamente el sonido para que los pedidos pendientes sigan sonando. No marques Enterado hasta recuperar la alarma.</small></div><button onClick={activateKitchenAudio}>Reactivar alarma</button></div>}
     {(visualSyncState==='offline'||visualSyncState==='degraded')&&<div className={`kitchen-sync-warning ${visualSyncState}`}><AlertTriangle/><div><strong>{visualSyncState==='offline'?'Cocina está sin internet':'Realtime tuvo una interrupción'}</strong><small>{visualSyncState==='offline'?'No se pueden recibir cambios hasta recuperar conexión. Al volver internet, Cocina actualizará los pedidos automáticamente.':'La pantalla sigue verificando la base de datos cada 10 segundos y está intentando reconectar Realtime.'}</small></div></div>}
     <section className="kitchen-board"><KitchenColumn title="Preparando" tone="preparing" count={preparing.length} orders={preparing} actionLabel="Marcar listo" actionIcon={<Check/>} onAction={id=>setStatus(id,'ready')} onDetails={setDetailOrder} onAcknowledge={acknowledgeOrder} nowMs={nowMs}/><KitchenColumn title="Listos para entregar" tone="ready" count={ready.length} orders={ready} actionLabel={o=>o.fulfillment_type==='pickup'?'Confirmar entrega':'Salió a ruta'} actionIcon={o=>o.fulfillment_type==='pickup'?<Check/>:<Bike/>} onAction={advanceOrder} onDetails={setDetailOrder} onAcknowledge={acknowledgeOrder} nowMs={nowMs}/></section>
     {route.length>0&&<section className="route-strip"><div className="route-strip-head"><span>EN CAMINO</span><strong>{route.length} pedido{route.length!==1?'s':''}</strong></div><div className="route-orders-list">{route.map(o=><div className="route-order-row" key={o.id}><div className="route-order-info"><strong>Pedido #{String(o.order_number).padStart(4,'0')}</strong><small>{o.delivery_address}</small></div><div className="route-order-actions"><button className="route-detail-btn" onClick={()=>setDetailOrder(o)}><Eye/> Ver detalles</button>{riders.map((rider,index)=><button key={index} className={`rider-btn rider-${index+1}`} onClick={()=>sendOrderToRider(o,rider)}>Enviar a {rider?.name?.trim()||`Repartidor ${index+1}`}</button>)}<button className="delivered-btn" onClick={()=>setStatus(o.id,'delivered')}>Marcar entregado <ArrowRight/></button></div></div>)}</div></section>}

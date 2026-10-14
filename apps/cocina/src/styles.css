@@ -3691,3 +3691,72 @@ main{
   .kitchen-detail-timing{margin-left:16px;margin-right:16px;align-items:stretch;flex-direction:column}
   .kitchen-detail-timing>button{justify-content:center}
 }
+
+/* ===== Cocina v36.1 · activación de audio obligatoria antes de operar ===== */
+.kitchen-audio-gate{
+  position:fixed;
+  inset:0;
+  z-index:10000;
+  display:grid;
+  place-items:center;
+  padding:24px;
+  background:rgba(8,8,8,.88);
+  backdrop-filter:blur(12px);
+}
+.kitchen-audio-gate>section{
+  width:min(470px,100%);
+  background:#fff;
+  color:#151515;
+  border-radius:24px;
+  padding:30px;
+  text-align:center;
+  box-shadow:0 26px 80px rgba(0,0,0,.44);
+}
+.kitchen-audio-gate-icon{
+  width:68px;
+  height:68px;
+  margin:0 auto 16px;
+  display:grid;
+  place-items:center;
+  border-radius:22px;
+  background:#c61f2c;
+  color:#fff;
+  box-shadow:0 10px 28px rgba(198,31,44,.28);
+}
+.kitchen-audio-gate-icon svg{width:31px;height:31px}
+.kitchen-audio-gate>section>span{display:block;font-size:10px;font-weight:950;letter-spacing:.16em;color:#b71927}
+.kitchen-audio-gate h2{margin:7px 0 10px;font-size:26px;line-height:1.08}
+.kitchen-audio-gate p{margin:0;color:#5f5b57;font-size:13px;line-height:1.55}
+.kitchen-audio-gate button{
+  width:100%;
+  margin-top:20px;
+  border:0;
+  border-radius:14px;
+  padding:15px 18px;
+  background:#c61f2c;
+  color:#fff;
+  font-weight:950;
+  font-size:14px;
+  cursor:pointer;
+}
+.kitchen-audio-gate small{display:block;margin-top:11px;color:#88827c;font-size:10px;line-height:1.4}
+.kitchen-audio-warning{align-items:center}
+.kitchen-audio-warning>button{
+  margin-left:auto;
+  flex:0 0 auto;
+  border:1px solid #ff9aa2;
+  background:#fff;
+  color:#8f101b;
+  border-radius:9px;
+  padding:8px 11px;
+  font-size:10px;
+  font-weight:900;
+  cursor:pointer;
+}
+@media(max-width:620px){
+  .kitchen-audio-gate{padding:16px}
+  .kitchen-audio-gate>section{padding:24px 20px;border-radius:20px}
+  .kitchen-audio-gate h2{font-size:23px}
+  .kitchen-audio-warning{align-items:flex-start;flex-wrap:wrap}
+  .kitchen-audio-warning>button{width:100%;margin-left:30px}
+}
