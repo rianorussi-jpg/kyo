@@ -338,7 +338,15 @@ export function KitchenMode({auth}){
   const [soundReady,setSoundReady]=useState(false)
   const [riders,setRiders]=useState(fallbackRiders[branch])
   const [detailOrder,setDetailOrder]=useState(null)
+  const [realtimeState,setRealtimeState]=useState(typeof navigator!=='undefined'&&!navigator.onLine?'offline':'connecting')
+  const [lastSyncAt,setLastSyncAt]=useState(null)
+  const [syncError,setSyncError]=useState('')
   const audioRef=useRef(null)
+  const loadRequestRef=useRef(0)
+  const branchRef=useRef(branch)
+  const initialLoadRef=useRef(false)
+  const notifiedPreparingRef=useRef(new Set())
+  branchRef.current=branch
 
   const enableSound=async()=>{
     try{
@@ -350,57 +358,216 @@ export function KitchenMode({auth}){
 
   const loadRiders=async()=>{
     if(!supabase)return
-    const {data}=await supabase.from('app_settings').select('delivery_riders').eq('id','main').maybeSingle()
+    const {data,error}=await supabase.from('app_settings').select('delivery_riders').eq('id','main').maybeSingle()
+    if(error){console.error('Kitchen riders load error',error);return}
     const configured=data?.delivery_riders?.[branch]
     if(Array.isArray(configured)&&configured.length)setRiders([0,1].map(i=>configured[i]||{name:`Repartidor ${i+1}`,phone:''}))
     else setRiders(fallbackRiders[branch])
   }
 
-  const load=async()=>{
-    if(!supabase)return
-    setLoading(true)
-    let q=supabase.from('orders').select('*, order_items(*), profiles(full_name,phone)').eq('branch_id',branch).in('status',['preparing','ready','on_the_way']).order('created_at',{ascending:true})
-    const {data}=await q
-    const rawOrders=data||[]
-    const allItems=rawOrders.flatMap(o=>o.order_items||[])
-    const templateIds=[...new Set(allItems.flatMap(i=>(Array.isArray(i.customizations)?i.customizations:[]).map(c=>c.template_id).filter(Boolean)))]
-    const productIds=[...new Set(allItems.map(i=>i.product_id).filter(Boolean))]
-    const [{data:templates},{data:promoProducts}]=await Promise.all([
-      templateIds.length?supabase.from('customization_templates').select('id,name,options').in('id',templateIds):Promise.resolve({data:[]}),
-      productIds.length?supabase.from('products').select('id,price,promo_3x2_eligible,kitchen_temp').in('id',productIds):Promise.resolve({data:[]})
-    ])
-    const templateMap=new Map((templates||[]).map(t=>[String(t.id),t]))
-    const productMap=new Map((promoProducts||[]).map(p=>[String(p.id),p]))
-    const hydrated=rawOrders.map(order=>applyPromoFreeUnits({...order,order_items:(order.order_items||[]).map(item=>{
-      const customs=(Array.isArray(item.customizations)?item.customizations:[]).map(c=>{
-        const template=templateMap.get(String(c.template_id))
-        const option=(template?.options||[]).find(o=>String(o.id)===String(c.option_id))
-        return {...c,template_name:template?.name||c.template_name||'Personalización',label:option?.name||option?.label||c.label||c.option_name||c.name||'Opción',price:Number(option?.price??c.price??0)}
-      })
-      const extras=customs.reduce((sum,c)=>sum+customizationLineTotal(c),0)
-      const product=productMap.get(String(item.product_id))
-      return {...item,customizations:customs,_base_price:Math.max(0,Number(item.unit_price||0)-extras),_extras_total:extras,_promo_eligible:!!product?.promo_3x2_eligible,_catalog_base_price:Number(product?.price??Math.max(0,Number(item.unit_price||0)-extras)),_kitchen_temp:product?.kitchen_temp==='F'?'F':'C'}
-    })}))
-    setOrders(hydrated)
-    setLoading(false)
+  const load=async({silent=false}={})=>{
+    if(!supabase)return false
+    const requestId=++loadRequestRef.current
+    const requestBranch=branch
+    if(!silent)setLoading(true)
+    try{
+      const {data,error}=await supabase
+        .from('orders')
+        .select('*, order_items(*), profiles(full_name,phone)')
+        .eq('branch_id',requestBranch)
+        .in('status',['preparing','ready','on_the_way'])
+        .order('created_at',{ascending:true})
+      if(error)throw error
+
+      const rawOrders=data||[]
+      const allItems=rawOrders.flatMap(o=>o.order_items||[])
+      const templateIds=[...new Set(allItems.flatMap(i=>(Array.isArray(i.customizations)?i.customizations:[]).map(c=>c.template_id).filter(Boolean)))]
+      const productIds=[...new Set(allItems.map(i=>i.product_id).filter(Boolean))]
+      const [templatesResult,promoProductsResult]=await Promise.all([
+        templateIds.length?supabase.from('customization_templates').select('id,name,options').in('id',templateIds):Promise.resolve({data:[],error:null}),
+        productIds.length?supabase.from('products').select('id,price,promo_3x2_eligible,kitchen_temp').in('id',productIds):Promise.resolve({data:[],error:null})
+      ])
+      if(templatesResult.error)throw templatesResult.error
+      if(promoProductsResult.error)throw promoProductsResult.error
+
+      const templateMap=new Map((templatesResult.data||[]).map(t=>[String(t.id),t]))
+      const productMap=new Map((promoProductsResult.data||[]).map(p=>[String(p.id),p]))
+      const hydrated=rawOrders.map(order=>applyPromoFreeUnits({...order,order_items:(order.order_items||[]).map(item=>{
+        const customs=(Array.isArray(item.customizations)?item.customizations:[]).map(c=>{
+          const template=templateMap.get(String(c.template_id))
+          const option=(template?.options||[]).find(o=>String(o.id)===String(c.option_id))
+          return {...c,template_name:template?.name||c.template_name||'Personalización',label:option?.name||option?.label||c.label||c.option_name||c.name||'Opción',price:Number(option?.price??c.price??0)}
+        })
+        const extras=customs.reduce((sum,c)=>sum+customizationLineTotal(c),0)
+        const product=productMap.get(String(item.product_id))
+        return {...item,customizations:customs,_base_price:Math.max(0,Number(item.unit_price||0)-extras),_extras_total:extras,_promo_eligible:!!product?.promo_3x2_eligible,_catalog_base_price:Number(product?.price??Math.max(0,Number(item.unit_price||0)-extras)),_kitchen_temp:product?.kitchen_temp==='F'?'F':'C'}
+      })}))
+
+      // Only the newest request is allowed to update the board. This prevents an
+      // older/slower response from overwriting a newer snapshot of active orders.
+      if(requestId!==loadRequestRef.current||branchRef.current!==requestBranch)return false
+
+      const preparingIds=new Set(hydrated.filter(o=>o.status==='preparing').map(o=>String(o.id)))
+      if(initialLoadRef.current){
+        const unseen=[...preparingIds].filter(id=>!notifiedPreparingRef.current.has(id))
+        if(unseen.length){
+          unseen.forEach(id=>notifiedPreparingRef.current.add(id))
+          playNewOrderBeep(audioRef.current)
+        }
+      }else{
+        preparingIds.forEach(id=>notifiedPreparingRef.current.add(id))
+        initialLoadRef.current=true
+      }
+
+      setOrders(hydrated)
+      setLastSyncAt(new Date())
+      setSyncError('')
+      return true
+    }catch(error){
+      if(requestId===loadRequestRef.current&&branchRef.current===requestBranch){
+        console.error('Kitchen orders load error',error)
+        setSyncError('No se pudo verificar la lista de pedidos. Se volverá a intentar automáticamente.')
+      }
+      return false
+    }finally{
+      if(requestId===loadRequestRef.current&&branchRef.current===requestBranch)setLoading(false)
+    }
   }
 
   useEffect(()=>{
+    initialLoadRef.current=false
+    notifiedPreparingRef.current=new Set()
+    setSyncError('')
+    setRealtimeState(typeof navigator!=='undefined'&&!navigator.onLine?'offline':'connecting')
+
+    if(!supabase){setLoading(false);return}
+
+    let disposed=false
+    let channel=null
+    let reconnectTimer=null
+    let channelAttempt=0
+
+    const scheduleReconnect=()=>{
+      if(disposed||typeof navigator!=='undefined'&&!navigator.onLine)return
+      if(reconnectTimer)clearTimeout(reconnectTimer)
+      reconnectTimer=setTimeout(()=>{
+        if(disposed)return
+        setRealtimeState('connecting')
+        connectRealtime()
+      },2500)
+    }
+
+    const alertPreparingOrder=payload=>{
+      const next=payload?.new
+      if(!next?.id||next.status!=='preparing')return
+      const id=String(next.id)
+      if(notifiedPreparingRef.current.has(id))return
+      notifiedPreparingRef.current.add(id)
+      playNewOrderBeep(audioRef.current)
+    }
+
+    const connectRealtime=()=>{
+      if(disposed||!supabase)return
+      if(typeof navigator!=='undefined'&&!navigator.onLine){setRealtimeState('offline');return}
+
+      if(channel){
+        const oldChannel=channel
+        channel=null
+        supabase.removeChannel(oldChannel).catch(()=>{})
+      }
+
+      const nextChannel=supabase
+        .channel(`kitchen-${branch}-${++channelAttempt}`)
+        .on('postgres_changes',{event:'*',schema:'public',table:'orders',filter:`branch_id=eq.${branch}`},payload=>{
+          if(disposed)return
+          // Card orders are inserted as pending_payment and later UPDATE to preparing,
+          // so alert on any transition/event whose new status is preparing.
+          alertPreparingOrder(payload)
+          load({silent:true})
+        })
+
+      channel=nextChannel
+      nextChannel.subscribe(status=>{
+        if(disposed||channel!==nextChannel)return
+        if(status==='SUBSCRIBED'){
+          if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null}
+          setRealtimeState('live')
+          // Fresh snapshot after subscription closes the startup gap between
+          // the first database read and Realtime becoming fully connected.
+          load({silent:true})
+          return
+        }
+        if(['TIMED_OUT','CHANNEL_ERROR','CLOSED'].includes(status)){
+          setRealtimeState(typeof navigator!=='undefined'&&!navigator.onLine?'offline':'degraded')
+          scheduleReconnect()
+        }
+      })
+    }
+
+    const online=()=>{
+      if(disposed)return
+      setRealtimeState('connecting')
+      load({silent:true})
+      connectRealtime()
+    }
+    const offline=()=>{if(!disposed)setRealtimeState('offline')}
+    const refreshWhenVisible=()=>{
+      if(disposed)return
+      if(typeof document!=='undefined'&&document.visibilityState==='visible'&&(typeof navigator==='undefined'||navigator.onLine))load({silent:true})
+    }
+    const refreshOnFocus=()=>{
+      if(disposed)return
+      if(typeof navigator==='undefined'||navigator.onLine)load({silent:true})
+    }
+
+    // Connect first, then take a snapshot; another snapshot runs on SUBSCRIBED.
+    // Together this eliminates the small startup window where an order could be missed.
+    connectRealtime()
     load()
     loadRiders()
-    if(!supabase)return
-    const ch=supabase.channel(`kitchen-${branch}`)
-      .on('postgres_changes',{event:'*',schema:'public',table:'orders',filter:`branch_id=eq.${branch}`},payload=>{
-        if(payload.eventType==='INSERT'&&payload.new?.status==='preparing'){
-          playNewOrderBeep(audioRef.current)
-        }
-        load()
-      })
-      .subscribe()
-    return()=>supabase.removeChannel(ch)
+
+    // Realtime remains the primary path. This 10-second poll is a safety net in
+    // case the browser/WebSocket ever misses an event.
+    const safetyPoll=setInterval(()=>{
+      if(disposed)return
+      const visible=typeof document==='undefined'||document.visibilityState==='visible'
+      const onlineNow=typeof navigator==='undefined'||navigator.onLine
+      if(visible&&onlineNow)load({silent:true})
+    },10000)
+
+    window.addEventListener('online',online)
+    window.addEventListener('offline',offline)
+    window.addEventListener('focus',refreshOnFocus)
+    document.addEventListener('visibilitychange',refreshWhenVisible)
+
+    return()=>{
+      disposed=true
+      loadRequestRef.current+=1
+      clearInterval(safetyPoll)
+      if(reconnectTimer)clearTimeout(reconnectTimer)
+      window.removeEventListener('online',online)
+      window.removeEventListener('offline',offline)
+      window.removeEventListener('focus',refreshOnFocus)
+      document.removeEventListener('visibilitychange',refreshWhenVisible)
+      if(channel){
+        const oldChannel=channel
+        channel=null
+        supabase.removeChannel(oldChannel).catch(()=>{})
+      }
+    }
   },[branch])
 
-  const setStatus=async(id,status)=>{await supabase.from('orders').update({status}).eq('id',id);load()}
+  const setStatus=async(id,status)=>{
+    const {error}=await supabase.from('orders').update({status}).eq('id',id)
+    if(error){
+      console.error('Kitchen status update error',error)
+      alert('No pudimos actualizar el estado del pedido. Revisa la conexión e intenta nuevamente.')
+      await load({silent:true})
+      return false
+    }
+    await load()
+    return true
+  }
   const advanceOrder=async(id,order)=>{
     if(order.fulfillment_type==='pickup'){
       const payment=isPaid(order)?`Este pedido YA ESTÁ PAGADO (${money(chargedTotal(order))}).`:`Este pedido se cobra por ${paymentLabel(order).toLowerCase()} (${money(chargedTotal(order))}).`
@@ -410,9 +577,21 @@ export function KitchenMode({auth}){
     }
     await setStatus(id,'on_the_way')
   }
-  const preparing=orders.filter(o=>o.status==='preparing');const ready=orders.filter(o=>o.status==='ready');const route=orders.filter(o=>o.status==='on_the_way')
+
+  const preparing=orders.filter(o=>o.status==='preparing')
+  const ready=orders.filter(o=>o.status==='ready')
+  const route=orders.filter(o=>o.status==='on_the_way')
+  const visualSyncState=syncError&&realtimeState==='live'?'degraded':realtimeState
+  const syncTitle=visualSyncState==='live'?'En vivo':visualSyncState==='offline'?'Sin conexión':visualSyncState==='degraded'?'Respaldo activo':'Conectando'
+  const syncDetail=visualSyncState==='offline'
+    ?'Se sincroniza al volver internet'
+    :lastSyncAt
+      ?`Verificado ${lastSyncAt.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',second:'2-digit'})} · respaldo 10 s`
+      :'Preparando sincronización'
+
   return <main className="kitchen-shell">
-    <header className="kitchen-head"><div><span>MODO COCINA</span><h1>{branchName(branch)}</h1><p>Pedidos en tiempo real · abre detalles antes de entregar o imprimir.</p></div><div className="kitchen-head-actions"><button className={`kitchen-sound-btn ${soundReady?'ready':''}`} onClick={enableSound}>{soundReady?<Volume2/>:<VolumeX/>}<span>{soundReady?'Sonido activo':'Activar sonido'}</span></button><button onClick={()=>{load();loadRiders()}} title="Actualizar"><RefreshCw className={loading?'spin':''}/></button><button onClick={()=>supabase.auth.signOut()} title="Cerrar sesión"><LogOut/></button></div></header>
+    <header className="kitchen-head"><div><span>MODO COCINA</span><h1>{branchName(branch)}</h1><p>Pedidos en tiempo real · abre detalles antes de entregar o imprimir.</p></div><div className="kitchen-head-actions"><div className={`kitchen-sync-pill ${visualSyncState}`} title={syncError||syncDetail}><i/><div><strong>{syncTitle}</strong><small>{syncDetail}</small></div></div><button className={`kitchen-sound-btn ${soundReady?'ready':''}`} onClick={enableSound}>{soundReady?<Volume2/>:<VolumeX/>}<span>{soundReady?'Sonido activo':'Activar sonido'}</span></button><button onClick={()=>{load();loadRiders()}} title="Actualizar"><RefreshCw className={loading?'spin':''}/></button><button onClick={()=>supabase.auth.signOut()} title="Cerrar sesión"><LogOut/></button></div></header>
+    {(visualSyncState==='offline'||visualSyncState==='degraded')&&<div className={`kitchen-sync-warning ${visualSyncState}`}><AlertTriangle/><div><strong>{visualSyncState==='offline'?'Cocina está sin internet':'Realtime tuvo una interrupción'}</strong><small>{visualSyncState==='offline'?'No se pueden recibir cambios hasta recuperar conexión. Al volver internet, Cocina actualizará los pedidos automáticamente.':'La pantalla sigue verificando la base de datos cada 10 segundos y está intentando reconectar Realtime.'}</small></div></div>}
     <section className="kitchen-board"><KitchenColumn title="Preparando" tone="preparing" count={preparing.length} orders={preparing} actionLabel="Marcar listo" actionIcon={<Check/>} onAction={id=>setStatus(id,'ready')} onDetails={setDetailOrder}/><KitchenColumn title="Listos para entregar" tone="ready" count={ready.length} orders={ready} actionLabel={o=>o.fulfillment_type==='pickup'?'Confirmar entrega':'Salió a ruta'} actionIcon={o=>o.fulfillment_type==='pickup'?<Check/>:<Bike/>} onAction={advanceOrder} onDetails={setDetailOrder}/></section>
     {route.length>0&&<section className="route-strip"><div className="route-strip-head"><span>EN CAMINO</span><strong>{route.length} pedido{route.length!==1?'s':''}</strong></div><div className="route-orders-list">{route.map(o=><div className="route-order-row" key={o.id}><div className="route-order-info"><strong>Pedido #{String(o.order_number).padStart(4,'0')}</strong><small>{o.delivery_address}</small></div><div className="route-order-actions"><button className="route-detail-btn" onClick={()=>setDetailOrder(o)}><Eye/> Ver detalles</button>{riders.map((rider,index)=><button key={index} className={`rider-btn rider-${index+1}`} onClick={()=>sendOrderToRider(o,rider)}>Enviar a {rider?.name?.trim()||`Repartidor ${index+1}`}</button>)}<button className="delivered-btn" onClick={()=>setStatus(o.id,'delivered')}>Marcar entregado <ArrowRight/></button></div></div>)}</div></section>}
     {detailOrder&&<KitchenOrderDetail order={detailOrder} onClose={()=>setDetailOrder(null)} onPrintKitchen={()=>printKitchenTicket(detailOrder)} onPrintSale={()=>printSaleTicket(detailOrder)} onStatusAction={async order=>{if(order.status==='preparing'){await setStatus(order.id,'ready');setDetailOrder(null);return}if(order.status==='ready'){await advanceOrder(order.id,order);setDetailOrder(null)}}}/>}
