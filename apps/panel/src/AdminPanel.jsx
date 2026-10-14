@@ -7,6 +7,24 @@ const statusLabels = {
   pending_payment:'Esperando pago', preparing:'Preparando', ready:'Listo', on_the_way:'En camino', delivered:'Entregado', cancelled:'Cancelado'
 }
 
+const kitchenPrepSeconds=order=>{
+  const saved=Number(order?.kitchen_prep_seconds)
+  if(Number.isFinite(saved)&&saved>=0)return Math.floor(saved)
+  const start=Date.parse(order?.kitchen_started_at||'')
+  const ready=Date.parse(order?.kitchen_ready_at||'')
+  if(!Number.isFinite(start)||!Number.isFinite(ready))return null
+  return Math.max(0,Math.floor((ready-start)/1000))
+}
+const formatKitchenDuration=seconds=>{
+  if(seconds===null||seconds===undefined||!Number.isFinite(Number(seconds)))return '—'
+  const total=Math.max(0,Math.floor(Number(seconds)))
+  const hours=Math.floor(total/3600)
+  const minutes=Math.floor((total%3600)/60)
+  const secs=total%60
+  return hours>0?`${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:${String(secs).padStart(2,'0')}`:`${String(minutes).padStart(2,'0')}:${String(secs).padStart(2,'0')}`
+}
+const kitchenPrepLabel=order=>order?.kitchen_ready_at?formatKitchenDuration(kitchenPrepSeconds(order)):order?.kitchen_started_at?'En curso':'—'
+
 const defaultBusinessHours={
   mon:{closed:true,open:'13:00',close:'21:00'},
   tue:{closed:false,open:'13:00',close:'21:00'},
@@ -653,7 +671,7 @@ function AdminRecords({orders,fixedBranch=null}){
   return <div className="admin-records">
     <div className="records-toolbar"><div><small>SUCURSAL</small>{fixedBranch?<div className={`fixed-branch-label ${fixedBranch}`}><MapPin/> KYO {branchName}</div>:<BranchFilter value={branch} onChange={setBranch}/>}</div><div><small>PERIODO</small><div className="admin-filter-row">{[['1','1 día'],['7','7 días'],['30','30 días'],['all','Toda la vida']].map(([v,l])=><button key={v} className={period===v?'active':''} onClick={()=>setPeriod(v)}>{l}</button>)}</div></div></div>
     <div className="record-summary extended tips"><article><DollarSign/><span><small>VENTAS KYO (SIN PROPINAS)</small><strong>{money(total)}</strong></span></article><article className="tip-kpi"><Gift/><span><small>PROPINAS</small><strong>{money(tips)}</strong></span></article><article><Package/><span><small>PEDIDOS</small><strong>{filtered.length}</strong></span></article><article><Truck/><span><small>DELIVERY</small><strong>{delivery}</strong></span></article><article><Store/><span><small>PICKUP</small><strong>{pickup}</strong></span></article><article><ClipboardList/><span><small>ENTREGADOS</small><strong>{delivered}</strong></span></article></div>
-    <div className="records-table tip-records-table"><div className="records-head"><span>Pedido</span><span>Fecha</span><span>Sucursal</span><span>Cliente</span><span>Estado</span><span>Total</span><span>Propina</span><span></span></div>{filtered.map(o=><div className="records-row" key={o.id}><strong>#{String(o.order_number).padStart(4,'0')}</strong><span>{new Date(o.created_at).toLocaleString('es-MX')}</span><span><b className={`branch-pill small ${o.branch_id}`}>{o.branch_id==='zakia'?'Zákia':'Milenio'}</b></span><span>{o.profiles?.full_name||'Cliente KYO'}</span><span>{statusLabels[o.status]}</span><strong>{money(o.total)}</strong><strong className={Number(o.tip_amount||0)>0?'record-tip':'record-no-tip'}>{Number(o.tip_amount||0)>0?money(o.tip_amount):'—'}</strong><button className="record-detail-btn" onClick={()=>setDetailOrder(o)}>Ver detalles</button></div>)}{!filtered.length&&<div className="records-empty">No hay registros para este periodo.</div>}</div>
+    <div className="records-table tip-records-table"><div className="records-head"><span>Pedido</span><span>Fecha</span><span>Sucursal</span><span>Cliente</span><span>Estado</span><span>Tiempo cocina</span><span>Total</span><span>Propina</span><span></span></div>{filtered.map(o=><div className="records-row" key={o.id}><strong>#{String(o.order_number).padStart(4,'0')}</strong><span>{new Date(o.created_at).toLocaleString('es-MX')}</span><span><b className={`branch-pill small ${o.branch_id}`}>{o.branch_id==='zakia'?'Zákia':'Milenio'}</b></span><span>{o.profiles?.full_name||'Cliente KYO'}</span><span>{statusLabels[o.status]}</span><strong className={`record-kitchen-time ${o.kitchen_ready_at?'done':o.kitchen_started_at?'running':''}`}>{kitchenPrepLabel(o)}</strong><strong>{money(o.total)}</strong><strong className={Number(o.tip_amount||0)>0?'record-tip':'record-no-tip'}>{Number(o.tip_amount||0)>0?money(o.tip_amount):'—'}</strong><button className="record-detail-btn" onClick={()=>setDetailOrder(o)}>Ver detalles</button></div>)}{!filtered.length&&<div className="records-empty">No hay registros para este periodo.</div>}</div>
     {detailOrder&&<RecordDetailModal order={detailOrder} onClose={()=>setDetailOrder(null)}/>}  
   </div>
 }
@@ -669,6 +687,7 @@ function RecordDetailModal({order,onClose}){
         <article><small>CLIENTE</small><strong>{order.profiles?.full_name||'Cliente KYO'}</strong>{order.profiles?.phone&&<span>{order.profiles.phone}</span>}</article>
         <article><small>TIPO</small><strong>{order.fulfillment_type==='delivery'?'Delivery':'Pickup'}</strong><span>{order.payment_method==='card'?'Tarjeta / Stripe':order.payment_method==='terminal'?'Terminal':'Efectivo'}</span></article>
         <article><small>ESTADO</small><strong>{statusLabels[order.status]||order.status}</strong><span>{order.payment_status==='paid'?'Pago confirmado':order.payment_status==='failed'?'Pago fallido':order.payment_method==='cash'?'Pago en efectivo':order.payment_method==='terminal'?'Pago con terminal al recibir':order.payment_status||''}</span></article>
+        <article className="record-kitchen-metric"><small>TIEMPO EN COCINA</small><strong>{kitchenPrepLabel(order)}</strong><span>{order.kitchen_ready_at?'Desde Preparando hasta Listo':order.kitchen_started_at?'Cronómetro activo hasta marcar Listo':'Sin registro de tiempo para este pedido'}</span></article>
       </div>
       {(order.delivery_address||order.delivery_reference||order.delivery_notes)&&<div className="record-detail-address"><small>ENTREGA / NOTAS</small>{order.delivery_address&&<strong>{order.delivery_address}</strong>}{order.delivery_reference&&<span><b>Referencia:</b> {order.delivery_reference}</span>}{order.delivery_notes&&<span><b>Notas:</b> {order.delivery_notes}</span>}</div>}
       <div className="record-detail-items"><div className="record-detail-section-title"><small>PRODUCTOS</small><strong>{order.order_items?.reduce((a,i)=>a+Number(i.quantity||0),0)||0} unidades</strong></div>{order.order_items?.map(i=><article key={i.id}><div><strong>{i.quantity}× {i.product_name}</strong>{i.item_note&&<em>Nota: {i.item_note}</em>}</div>{i.customizations?.length>0&&<div className="record-detail-customs">{Object.entries(i.customizations.reduce((g,c)=>{const title=c.template_name||c.group_name||c.customization_name||c.title||'Personalización';(g[title]??=[]).push(c);return g},{})).map(([title,rows])=><span key={title}><b>{title}:</b> {rows.map(c=>c.label||c.option_name||c.name).join(', ')}</span>)}</div>}</article>)}</div>

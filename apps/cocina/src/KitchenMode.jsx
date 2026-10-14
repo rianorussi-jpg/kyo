@@ -1,41 +1,69 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { RefreshCw, ChefHat, LogOut, Clock3, MapPin, Bike, Store, Check, ArrowRight, Volume2, VolumeX, Eye, Printer, X, CreditCard, Banknote, AlertTriangle } from 'lucide-react'
+import { RefreshCw, ChefHat, LogOut, Clock3, MapPin, Bike, Store, Check, ArrowRight, VolumeX, Eye, Printer, X, CreditCard, Banknote, AlertTriangle } from 'lucide-react'
 import { supabase } from './supabase'
 
 const money=n=>`$${Number(n||0).toLocaleString('es-MX',{maximumFractionDigits:2})}`
 const branchName=id=>id==='zakia'?'KYO Zákia':'KYO Milenio'
 
-function createKitchenAudio(){
+let sharedKitchenAudioContext=null
+
+function getKitchenAudio(){
+  if(sharedKitchenAudioContext)return sharedKitchenAudioContext
   const AudioCtx=window.AudioContext||window.webkitAudioContext
   if(!AudioCtx)return null
-  return new AudioCtx()
+  sharedKitchenAudioContext=new AudioCtx()
+  return sharedKitchenAudioContext
 }
 
-function playNewOrderBeep(ctx){
-  if(!ctx)return
-  try{
-    if(ctx.state==='suspended')ctx.resume()
-    const osc=ctx.createOscillator()
-    const gain=ctx.createGain()
-    osc.type='sine'
-    osc.frequency.setValueAtTime(880,ctx.currentTime)
-    osc.connect(gain)
-    gain.connect(ctx.destination)
+async function unlockKitchenAudio(){
+  const ctx=getKitchenAudio()
+  if(!ctx)return null
+  try{if(ctx.state==='suspended')await ctx.resume()}catch{}
+  return ctx
+}
 
+function playKitchenAlarmPulse(ctx){
+  if(!ctx||ctx.state!=='running')return
+  try{
     const start=ctx.currentTime
-    gain.gain.setValueAtTime(0.0001,start)
-    for(let i=0;i<10;i++){
-      const t=start+i*0.3
-      gain.gain.setValueAtTime(0.0001,t)
-      gain.gain.linearRampToValueAtTime(0.22,t+0.035)
-      gain.gain.setValueAtTime(0.22,t+0.16)
-      gain.gain.linearRampToValueAtTime(0.0001,t+0.25)
-    }
-    osc.start(start)
-    osc.stop(start+3.05)
-  }catch(e){
-    console.error('Kitchen sound error',e)
+    ;[0,0.28,0.56,0.84].forEach((offset,index)=>{
+      const osc=ctx.createOscillator()
+      const gain=ctx.createGain()
+      const at=start+offset
+      osc.type=index%2===0?'square':'sawtooth'
+      osc.frequency.setValueAtTime(index%2===0?960:720,at)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      gain.gain.setValueAtTime(0.0001,at)
+      gain.gain.linearRampToValueAtTime(0.2,at+0.025)
+      gain.gain.setValueAtTime(0.2,at+0.16)
+      gain.gain.exponentialRampToValueAtTime(0.0001,at+0.24)
+      osc.start(at)
+      osc.stop(at+0.25)
+    })
+  }catch(error){
+    console.error('Kitchen alarm error',error)
   }
+}
+
+const kitchenElapsedSeconds=(order,nowMs=Date.now())=>{
+  const saved=Number(order?.kitchen_prep_seconds)
+  if(order?.kitchen_ready_at&&Number.isFinite(saved)&&saved>=0)return Math.floor(saved)
+  const start=Date.parse(order?.kitchen_started_at||'')
+  if(!Number.isFinite(start))return null
+  const ready=order?.kitchen_ready_at?Date.parse(order.kitchen_ready_at):NaN
+  const end=Number.isFinite(ready)?ready:nowMs
+  return Math.max(0,Math.floor((end-start)/1000))
+}
+
+const formatKitchenDuration=seconds=>{
+  if(seconds===null||seconds===undefined||!Number.isFinite(Number(seconds)))return '00:00'
+  const total=Math.max(0,Math.floor(Number(seconds)))
+  const hours=Math.floor(total/3600)
+  const minutes=Math.floor((total%3600)/60)
+  const secs=total%60
+  if(hours>0)return `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:${String(secs).padStart(2,'0')}`
+  return `${String(minutes).padStart(2,'0')}:${String(secs).padStart(2,'0')}`
 }
 
 const normalizedPaymentMethod=order=>{
@@ -329,32 +357,28 @@ export function KitchenGate({auth,children}){
   if(!auth.profile?.kitchen_branch && !auth.profile?.is_admin)return <main className="kitchen-login"><ChefHat size={48}/><h1>Cuenta sin sucursal de cocina</h1><p>Asigna <b>zakia</b> o <b>milenio</b> a esta cuenta desde Supabase.</p><button className="primary" onClick={()=>supabase.auth.signOut()}>Cerrar sesión</button></main>
   return children
 }
-function KitchenLogin(){const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [error,setError]=useState('');const [busy,setBusy]=useState(false);const submit=async e=>{e.preventDefault();setBusy(true);const {error}=await supabase.auth.signInWithPassword({email,password});setBusy(false);if(error)setError(error.message)};return <main className="kitchen-login"><form className="kitchen-login-card" onSubmit={submit}><ChefHat size={42}/><span>MODO COCINA</span><h1>KYO</h1><p>Entra con la cuenta de tu sucursal.</p><label>Correo<input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="zakia@kyosushi.mx"/></label><label>Contraseña<input type="password" required value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<div className="form-message">{error}</div>}<button className="primary full" disabled={busy}>{busy?'Entrando...':'Entrar a cocina'}</button></form></main>}
+function KitchenLogin(){const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [error,setError]=useState('');const [busy,setBusy]=useState(false);const submit=async e=>{e.preventDefault();unlockKitchenAudio();setBusy(true);const {error}=await supabase.auth.signInWithPassword({email,password});setBusy(false);if(error)setError(error.message)};return <main className="kitchen-login"><form className="kitchen-login-card" onSubmit={submit}><ChefHat size={42}/><span>MODO COCINA</span><h1>KYO</h1><p>Entra con la cuenta de tu sucursal.</p><label>Correo<input type="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="zakia@kyosushi.mx"/></label><label>Contraseña<input type="password" required value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<div className="form-message">{error}</div>}<button className="primary full" disabled={busy}>{busy?'Entrando...':'Entrar a cocina'}</button></form></main>}
 
 export function KitchenMode({auth}){
   const branch=auth.profile?.kitchen_branch||'zakia'
   const [orders,setOrders]=useState([])
   const [loading,setLoading]=useState(true)
-  const [soundReady,setSoundReady]=useState(false)
   const [riders,setRiders]=useState(fallbackRiders[branch])
   const [detailOrder,setDetailOrder]=useState(null)
   const [realtimeState,setRealtimeState]=useState(typeof navigator!=='undefined'&&!navigator.onLine?'offline':'connecting')
   const [lastSyncAt,setLastSyncAt]=useState(null)
   const [syncError,setSyncError]=useState('')
-  const audioRef=useRef(null)
+  const [alarmBlocked,setAlarmBlocked]=useState(false)
+  const [nowMs,setNowMs]=useState(Date.now())
   const loadRequestRef=useRef(0)
   const branchRef=useRef(branch)
-  const initialLoadRef=useRef(false)
-  const notifiedPreparingRef=useRef(new Set())
+  const alarmIntervalRef=useRef(null)
   branchRef.current=branch
 
-  const enableSound=async()=>{
-    try{
-      if(!audioRef.current)audioRef.current=createKitchenAudio()
-      if(audioRef.current?.state==='suspended')await audioRef.current.resume()
-      setSoundReady(!!audioRef.current)
-    }catch{setSoundReady(false)}
-  }
+  useEffect(()=>{
+    const timer=setInterval(()=>setNowMs(Date.now()),1000)
+    return()=>clearInterval(timer)
+  },[])
 
   const loadRiders=async()=>{
     if(!supabase)return
@@ -407,19 +431,11 @@ export function KitchenMode({auth}){
       // older/slower response from overwriting a newer snapshot of active orders.
       if(requestId!==loadRequestRef.current||branchRef.current!==requestBranch)return false
 
-      const preparingIds=new Set(hydrated.filter(o=>o.status==='preparing').map(o=>String(o.id)))
-      if(initialLoadRef.current){
-        const unseen=[...preparingIds].filter(id=>!notifiedPreparingRef.current.has(id))
-        if(unseen.length){
-          unseen.forEach(id=>notifiedPreparingRef.current.add(id))
-          playNewOrderBeep(audioRef.current)
-        }
-      }else{
-        preparingIds.forEach(id=>notifiedPreparingRef.current.add(id))
-        initialLoadRef.current=true
-      }
-
       setOrders(hydrated)
+      setDetailOrder(current=>{
+        if(!current)return current
+        return hydrated.find(o=>String(o.id)===String(current.id))||current
+      })
       setLastSyncAt(new Date())
       setSyncError('')
       return true
@@ -435,8 +451,6 @@ export function KitchenMode({auth}){
   }
 
   useEffect(()=>{
-    initialLoadRef.current=false
-    notifiedPreparingRef.current=new Set()
     setSyncError('')
     setRealtimeState(typeof navigator!=='undefined'&&!navigator.onLine?'offline':'connecting')
 
@@ -457,15 +471,6 @@ export function KitchenMode({auth}){
       },2500)
     }
 
-    const alertPreparingOrder=payload=>{
-      const next=payload?.new
-      if(!next?.id||next.status!=='preparing')return
-      const id=String(next.id)
-      if(notifiedPreparingRef.current.has(id))return
-      notifiedPreparingRef.current.add(id)
-      playNewOrderBeep(audioRef.current)
-    }
-
     const connectRealtime=()=>{
       if(disposed||!supabase)return
       if(typeof navigator!=='undefined'&&!navigator.onLine){setRealtimeState('offline');return}
@@ -480,9 +485,6 @@ export function KitchenMode({auth}){
         .channel(`kitchen-${branch}-${++channelAttempt}`)
         .on('postgres_changes',{event:'*',schema:'public',table:'orders',filter:`branch_id=eq.${branch}`},payload=>{
           if(disposed)return
-          // Card orders are inserted as pending_payment and later UPDATE to preparing,
-          // so alert on any transition/event whose new status is preparing.
-          alertPreparingOrder(payload)
           load({silent:true})
         })
 
@@ -557,7 +559,78 @@ export function KitchenMode({auth}){
     }
   },[branch])
 
+  const unacknowledgedPreparing=orders.filter(o=>o.status==='preparing'&&!o.kitchen_acknowledged_at)
+  const unacknowledgedPreparingKey=unacknowledgedPreparing.map(o=>String(o.id)).sort().join('|')
+
+  useEffect(()=>{
+    const stopAlarm=()=>{
+      if(alarmIntervalRef.current){
+        clearInterval(alarmIntervalRef.current)
+        alarmIntervalRef.current=null
+      }
+    }
+
+    stopAlarm()
+    if(!unacknowledgedPreparingKey){setAlarmBlocked(false);return}
+
+    let disposed=false
+    const startAlarm=async()=>{
+      if(disposed||alarmIntervalRef.current)return
+      const ctx=await unlockKitchenAudio()
+      if(disposed)return
+      if(!ctx||ctx.state!=='running'){
+        setAlarmBlocked(true)
+        return
+      }
+      setAlarmBlocked(false)
+      playKitchenAlarmPulse(ctx)
+      alarmIntervalRef.current=setInterval(()=>playKitchenAlarmPulse(ctx),1450)
+    }
+    const onUserGesture=()=>{startAlarm()}
+
+    startAlarm()
+    window.addEventListener('pointerdown',onUserGesture)
+    window.addEventListener('keydown',onUserGesture)
+    return()=>{
+      disposed=true
+      stopAlarm()
+      window.removeEventListener('pointerdown',onUserGesture)
+      window.removeEventListener('keydown',onUserGesture)
+    }
+  },[unacknowledgedPreparingKey])
+
+  const acknowledgeOrder=async order=>{
+    if(!order?.id||order.status!=='preparing'||order.kitchen_acknowledged_at)return true
+    // Invalidate any snapshot that may have started before this acknowledgement,
+    // so a stale response cannot paint the ticket red again.
+    loadRequestRef.current+=1
+    const acknowledgedAt=new Date().toISOString()
+    const {data,error}=await supabase
+      .from('orders')
+      .update({kitchen_acknowledged_at:acknowledgedAt})
+      .eq('id',order.id)
+      .eq('branch_id',branch)
+      .eq('status','preparing')
+      .select('id,kitchen_acknowledged_at')
+      .maybeSingle()
+    if(error){
+      console.error('Kitchen acknowledge error',error)
+      alert('No pudimos marcar el pedido como enterado. Revisa la conexión e intenta nuevamente.')
+      return false
+    }
+    const stamp=data?.kitchen_acknowledged_at||acknowledgedAt
+    setOrders(current=>current.map(o=>String(o.id)===String(order.id)?{...o,kitchen_acknowledged_at:stamp}:o))
+    setDetailOrder(current=>current&&String(current.id)===String(order.id)?{...current,kitchen_acknowledged_at:stamp}:current)
+    load({silent:true})
+    return true
+  }
+
   const setStatus=async(id,status)=>{
+    const currentOrder=orders.find(o=>String(o.id)===String(id))
+    if(status==='ready'&&currentOrder?.status==='preparing'&&!currentOrder?.kitchen_acknowledged_at){
+      alert('Primero toca MUTE · Enterado en este pedido. Así Cocina confirma que ya lo vio antes de marcarlo listo.')
+      return false
+    }
     const {error}=await supabase.from('orders').update({status}).eq('id',id)
     if(error){
       console.error('Kitchen status update error',error)
@@ -590,42 +663,54 @@ export function KitchenMode({auth}){
       :'Preparando sincronización'
 
   return <main className="kitchen-shell">
-    <header className="kitchen-head"><div><span>MODO COCINA</span><h1>{branchName(branch)}</h1><p>Pedidos en tiempo real · abre detalles antes de entregar o imprimir.</p></div><div className="kitchen-head-actions"><div className={`kitchen-sync-pill ${visualSyncState}`} title={syncError||syncDetail}><i/><div><strong>{syncTitle}</strong><small>{syncDetail}</small></div></div><button className={`kitchen-sound-btn ${soundReady?'ready':''}`} onClick={enableSound}>{soundReady?<Volume2/>:<VolumeX/>}<span>{soundReady?'Sonido activo':'Activar sonido'}</span></button><button onClick={()=>{load();loadRiders()}} title="Actualizar"><RefreshCw className={loading?'spin':''}/></button><button onClick={()=>supabase.auth.signOut()} title="Cerrar sesión"><LogOut/></button></div></header>
+    <header className="kitchen-head"><div><span>MODO COCINA</span><h1>{branchName(branch)}</h1><p>Pedidos en tiempo real · cada pedido nuevo requiere confirmación de Enterado.</p></div><div className="kitchen-head-actions"><div className={`kitchen-sync-pill ${visualSyncState}`} title={syncError||syncDetail}><i/><div><strong>{syncTitle}</strong><small>{syncDetail}</small></div></div><button onClick={()=>{load();loadRiders()}} title="Actualizar"><RefreshCw className={loading?'spin':''}/></button><button onClick={()=>supabase.auth.signOut()} title="Cerrar sesión"><LogOut/></button></div></header>
+    {alarmBlocked&&unacknowledgedPreparing.length>0&&<div className="kitchen-audio-warning"><VolumeX/><div><strong>El navegador bloqueó el audio automático</strong><small>Toca cualquier parte de la pantalla una vez. Después, las alarmas seguirán sonando solas hasta marcar cada pedido como Enterado.</small></div></div>}
     {(visualSyncState==='offline'||visualSyncState==='degraded')&&<div className={`kitchen-sync-warning ${visualSyncState}`}><AlertTriangle/><div><strong>{visualSyncState==='offline'?'Cocina está sin internet':'Realtime tuvo una interrupción'}</strong><small>{visualSyncState==='offline'?'No se pueden recibir cambios hasta recuperar conexión. Al volver internet, Cocina actualizará los pedidos automáticamente.':'La pantalla sigue verificando la base de datos cada 10 segundos y está intentando reconectar Realtime.'}</small></div></div>}
-    <section className="kitchen-board"><KitchenColumn title="Preparando" tone="preparing" count={preparing.length} orders={preparing} actionLabel="Marcar listo" actionIcon={<Check/>} onAction={id=>setStatus(id,'ready')} onDetails={setDetailOrder}/><KitchenColumn title="Listos para entregar" tone="ready" count={ready.length} orders={ready} actionLabel={o=>o.fulfillment_type==='pickup'?'Confirmar entrega':'Salió a ruta'} actionIcon={o=>o.fulfillment_type==='pickup'?<Check/>:<Bike/>} onAction={advanceOrder} onDetails={setDetailOrder}/></section>
+    <section className="kitchen-board"><KitchenColumn title="Preparando" tone="preparing" count={preparing.length} orders={preparing} actionLabel="Marcar listo" actionIcon={<Check/>} onAction={id=>setStatus(id,'ready')} onDetails={setDetailOrder} onAcknowledge={acknowledgeOrder} nowMs={nowMs}/><KitchenColumn title="Listos para entregar" tone="ready" count={ready.length} orders={ready} actionLabel={o=>o.fulfillment_type==='pickup'?'Confirmar entrega':'Salió a ruta'} actionIcon={o=>o.fulfillment_type==='pickup'?<Check/>:<Bike/>} onAction={advanceOrder} onDetails={setDetailOrder} onAcknowledge={acknowledgeOrder} nowMs={nowMs}/></section>
     {route.length>0&&<section className="route-strip"><div className="route-strip-head"><span>EN CAMINO</span><strong>{route.length} pedido{route.length!==1?'s':''}</strong></div><div className="route-orders-list">{route.map(o=><div className="route-order-row" key={o.id}><div className="route-order-info"><strong>Pedido #{String(o.order_number).padStart(4,'0')}</strong><small>{o.delivery_address}</small></div><div className="route-order-actions"><button className="route-detail-btn" onClick={()=>setDetailOrder(o)}><Eye/> Ver detalles</button>{riders.map((rider,index)=><button key={index} className={`rider-btn rider-${index+1}`} onClick={()=>sendOrderToRider(o,rider)}>Enviar a {rider?.name?.trim()||`Repartidor ${index+1}`}</button>)}<button className="delivered-btn" onClick={()=>setStatus(o.id,'delivered')}>Marcar entregado <ArrowRight/></button></div></div>)}</div></section>}
-    {detailOrder&&<KitchenOrderDetail order={detailOrder} onClose={()=>setDetailOrder(null)} onPrintKitchen={()=>printKitchenTicket(detailOrder)} onPrintSale={()=>printSaleTicket(detailOrder)} onStatusAction={async order=>{if(order.status==='preparing'){await setStatus(order.id,'ready');setDetailOrder(null);return}if(order.status==='ready'){await advanceOrder(order.id,order);setDetailOrder(null)}}}/>}
+    {detailOrder&&<KitchenOrderDetail order={detailOrder} nowMs={nowMs} onAcknowledge={acknowledgeOrder} onClose={()=>setDetailOrder(null)} onPrintKitchen={()=>printKitchenTicket(detailOrder)} onPrintSale={()=>printSaleTicket(detailOrder)} onStatusAction={async order=>{if(order.status==='preparing'){const ok=await setStatus(order.id,'ready');if(ok)setDetailOrder(null);return}if(order.status==='ready'){await advanceOrder(order.id,order);setDetailOrder(null)}}}/>}
   </main>
 }
 
-function KitchenColumn({title,tone,count,orders,actionLabel,actionIcon,onAction,onDetails}){return <section className={`kitchen-column kitchen-column-${tone||''}`}><header><div><small>{tone==='preparing'?'EN PRODUCCIÓN':'SALIDA'}</small><h2>{title}</h2></div><b>{count}</b></header><div className="kitchen-list">{orders.length===0?<div className="kitchen-empty">No hay pedidos aquí.</div>:orders.map(o=><KitchenTicket key={o.id} order={o} actionLabel={typeof actionLabel==='function'?actionLabel(o):actionLabel} actionIcon={typeof actionIcon==='function'?actionIcon(o):actionIcon} onAction={()=>onAction(o.id,o)} onDetails={()=>onDetails(o)}/>)}</div></section>}
+function KitchenColumn({title,tone,count,orders,actionLabel,actionIcon,onAction,onDetails,onAcknowledge,nowMs}){return <section className={`kitchen-column kitchen-column-${tone||''}`}><header><div><small>{tone==='preparing'?'EN PRODUCCIÓN':'SALIDA'}</small><h2>{title}</h2></div><b>{count}</b></header><div className="kitchen-list">{orders.length===0?<div className="kitchen-empty">No hay pedidos aquí.</div>:orders.map(o=><KitchenTicket key={o.id} order={o} actionLabel={typeof actionLabel==='function'?actionLabel(o):actionLabel} actionIcon={typeof actionIcon==='function'?actionIcon(o):actionIcon} onAction={()=>onAction(o.id,o)} onDetails={()=>onDetails(o)} onAcknowledge={()=>onAcknowledge(o)} nowMs={nowMs}/>)}</div></section>}
 
-function KitchenTicket({order,actionLabel,actionIcon,onAction,onDetails}){
+function KitchenTicket({order,actionLabel,actionIcon,onAction,onDetails,onAcknowledge,nowMs}){
   const pickup=order.fulfillment_type==='pickup'
   const paid=isPaid(order)
   const units=order.order_items?.reduce((a,i)=>a+Number(i.quantity||0),0)||0
-  return <article className={`kitchen-ticket ${pickup?'pickup-ticket':'delivery-ticket'}`}>
+  const needsAck=order.status==='preparing'&&!order.kitchen_acknowledged_at
+  const prepSeconds=kitchenElapsedSeconds(order,nowMs)
+  const prepLabel=formatKitchenDuration(prepSeconds)
+  const blockedReady=order.status==='preparing'&&needsAck
+  return <article className={`kitchen-ticket ${pickup?'pickup-ticket':'delivery-ticket'} ${needsAck?'needs-ack':''}`}>
     <div className="ticket-type-banner">{pickup?<><Store/> PICKUP · RECOGE EN SUCURSAL</>:<><Bike/> DELIVERY</>}</div>
+    <div className={`ticket-kitchen-alert ${needsAck?'alarm':order.status==='ready'?'done':'acknowledged'}`}>
+      <div className="ticket-prep-clock"><Clock3/><span><small>{order.status==='ready'?'TIEMPO HASTA LISTO':'TIEMPO PREPARANDO'}</small><strong>{prepLabel}</strong></span></div>
+      {needsAck?<button className="ticket-ack-btn" onClick={onAcknowledge}><VolumeX/><span><small>MUTE</small><strong>Enterado</strong></span></button>:<div className="ticket-ack-ok"><Check/><span>{order.status==='ready'?'Listo':'Enterado'}</span></div>}
+    </div>
     <div className="ticket-top"><div><small>PEDIDO</small><h3>#{String(order.order_number).padStart(4,'0')}</h3></div><span><Clock3/> {new Date(order.created_at).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}</span></div>
     <div className={`ticket-payment-alert ${paid?'paid':'collect'}`}>{paid?<CreditCard/>:<Banknote/>}<div><small>{paid?'PAGO CONFIRMADO':'PENDIENTE DE COBRO'}</small><strong>{paid?`Ya cobrado · ${money(chargedTotal(order))}`:`Cobrar ${money(chargedTotal(order))} · ${paymentLabel(order)}`}</strong></div></div>
     <button className="ticket-products-hidden" onClick={onDetails}><span><Eye/><b>{units} producto{units!==1?'s':''}</b></span><small>Contenido oculto · abre Ver detalles para preparar</small></button>
     <div className="ticket-customer"><strong>{order.profiles?.full_name||'Cliente KYO'}</strong>{order.profiles?.phone&&<span>Tel. {order.profiles.phone}</span>}</div>
     <div className="ticket-meta">{order.delivery_address&&<span><MapPin/>{order.delivery_address}</span>}{order.delivery_reference&&<p><b>Referencia:</b> {order.delivery_reference}</p>}</div>
     <div className="ticket-quick-actions"><button className="detail-btn" onClick={onDetails}><Eye/> Ver detalles</button><button className="print-btn kitchen-print-btn" onClick={()=>printKitchenTicket(order)}><Printer/> Ticket cocina</button><button className="print-btn sale-print-btn" onClick={()=>printSaleTicket(order)}><Printer/> Ticket venta</button></div>
-    <div className="ticket-foot"><div className="kitchen-payment-total"><strong>{money(chargedTotal(order))}</strong><small>{paymentLabel(order)}{Number(order.tip_amount||0)>0?` · Propina ${money(order.tip_amount)}`:''}</small></div><button className={pickup?'pickup-deliver-btn':''} onClick={onAction}>{actionIcon}{actionLabel}</button></div>
+    <div className="ticket-foot"><div className="kitchen-payment-total"><strong>{money(chargedTotal(order))}</strong><small>{paymentLabel(order)}{Number(order.tip_amount||0)>0?` · Propina ${money(order.tip_amount)}`:''}</small></div><button className={pickup?'pickup-deliver-btn':''} disabled={blockedReady} title={blockedReady?'Primero marca este pedido como Enterado':''} onClick={onAction}>{blockedReady?<VolumeX/>:actionIcon}{blockedReady?'Primero Enterado':actionLabel}</button></div>
   </article>
 }
 
-function KitchenOrderDetail({order,onClose,onPrintKitchen,onPrintSale,onStatusAction}){
+function KitchenOrderDetail({order,nowMs,onAcknowledge,onClose,onPrintKitchen,onPrintSale,onStatusAction}){
   const pickup=order.fulfillment_type==='pickup', paid=isPaid(order)
+  const needsAck=order.status==='preparing'&&!order.kitchen_acknowledged_at
+  const prepLabel=formatKitchenDuration(kitchenElapsedSeconds(order,nowMs))
   const actionLabel=order.status==='preparing'?'Marcar pedido listo':order.status==='ready'?(pickup?'Confirmar entrega pickup':'Marcar salida a ruta'):null
   return <div className="kitchen-detail-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><section className="kitchen-detail-modal">
     <header className="kitchen-detail-head"><div><small>DETALLE COMPLETO</small><h2>Pedido #{String(order.order_number).padStart(4,'0')}</h2><p>{new Date(order.created_at).toLocaleString('es-MX')} · {branchName(order.branch_id)}</p></div><button onClick={onClose}><X/></button></header>
     <div className={`kitchen-detail-fulfillment ${pickup?'pickup':'delivery'}`}><div>{pickup?<Store/>:<Bike/>}<span><small>TIPO DE PEDIDO</small><strong>{pickup?'PICKUP · RECOGE EN SUCURSAL':'DELIVERY · ENVÍO A DOMICILIO'}</strong></span></div><div className={paid?'paid':'collect'}>{paid?<CreditCard/>:<AlertTriangle/>}<span><small>{paid?'PAGO CONFIRMADO':'COBRO PENDIENTE'}</small><strong>{paid?`Ya se cobró ${money(chargedTotal(order))}`:`Cobrar ${money(chargedTotal(order))} · ${paymentLabel(order)}`}</strong></span></div></div>
+    <div className={`kitchen-detail-timing ${needsAck?'alarm':''}`}><div><Clock3/><span><small>{order.status==='ready'?'TIEMPO HASTA LISTO':'TIEMPO PREPARANDO'}</small><strong>{prepLabel}</strong></span></div>{needsAck?<button onClick={()=>onAcknowledge(order)}><VolumeX/><span><small>MUTE</small><strong>Enterado</strong></span></button>:<span className="kitchen-detail-ack-ok"><Check/> {order.status==='ready'?'Pedido listo':'Enterado'}</span>}</div>
     <div className="kitchen-detail-customer"><div><small>CLIENTE</small><strong>{order.profiles?.full_name||'Cliente KYO'}</strong>{order.profiles?.phone&&<span>{order.profiles.phone}</span>}</div><div><small>MÉTODO DE PAGO</small><strong>{paymentLabel(order)}</strong><span>{paid?'Pago confirmado':'Pendiente al entregar'}</span></div></div>
     {(order.delivery_address||order.delivery_reference||order.delivery_notes)&&<div className="kitchen-detail-notes">{order.delivery_address&&<p><MapPin/><span><small>DIRECCIÓN</small><strong>{order.delivery_address}</strong></span></p>}{order.delivery_reference&&<p><span><small>REFERENCIA</small><strong>{order.delivery_reference}</strong></span></p>}{order.delivery_notes&&<p className="important"><span><small>NOTAS DEL PEDIDO</small><strong>{order.delivery_notes}</strong></span></p>}</div>}
     <div className="kitchen-detail-items"><div className="kitchen-detail-section-title"><span>PRODUCTOS</span><b>{order.order_items?.reduce((a,i)=>a+Number(i.quantity||0),0)||0} unidades</b></div>{order.order_items?.map(i=><article key={i.id}><div className="detail-item-main"><span><b>{i.quantity}×</b><strong>{i.product_name}</strong></span><div><small>Precio final c/u</small><strong>{money(i.unit_price)}</strong><em>{money(Number(i.unit_price||0)*Number(i.quantity||0))} total</em></div></div><div className="detail-price-breakdown"><div><span>Producto base</span><strong>{money(itemBasePrice(i))}</strong></div>{itemExtrasPerUnit(i)>0&&<div><span>Personalizaciones</span><strong>+{money(itemExtrasPerUnit(i))}</strong></div>}{Number(i._promo_free_qty||0)>0&&<div className="promo-free-detail"><span>Promo 3×2 · {i._promo_free_qty} {Number(i._promo_free_qty)===1?'unidad con base gratis':'unidades con base gratis'}</span><strong>-{money(Number(i._catalog_base_price??itemBasePrice(i))*Number(i._promo_free_qty))}</strong></div>}<div className="final"><span>Precio final por unidad</span><strong>{money(i.unit_price)}</strong></div></div>{customizationGroups(i).length>0&&<div className="detail-customs">{customizationGroups(i).map(([title,rows])=><section key={title}><b>{title}</b>{rows.map((c,idx)=><p key={idx}><span>{customizationLabel(c)}{Number(c.quantity||1)>1?` ×${c.quantity}`:''}</span><strong>{customizationPrice(c)>0?`+${money(customizationLineTotal(c))}`:'Sin costo'}</strong></p>)}</section>)}</div>}{i.item_note&&<div className="detail-item-note"><b>NOTA DEL CLIENTE</b><span>{i.item_note}</span></div>}</article>)}</div>
     <div className="kitchen-detail-totals"><div><span>Productos antes de promo</span><strong>{money(subtotalBeforePromo(order))}</strong></div>{promoDiscount(order)>0&&<div className="promo-free-detail"><span>Promo 3×2 · producto(s) base gratis</span><strong>-{money(promoDiscount(order))}</strong></div>}<div><span>Subtotal después de promo</span><strong>{money(order.subtotal)}</strong></div>{firstOrderDiscount(order)>0&&<div className="promo-free-detail"><span>Regalo primer pedido</span><strong>-{money(firstOrderDiscount(order))}</strong></div>}{promoPackagingFee(order)>0&&<div><span>Empaque promo 3×2 · {promoPackagingCount(order)} × $14</span><strong>{money(promoPackagingFee(order))}</strong></div>}{Number(order.delivery_fee||0)>0&&<div><span>Envío{order.delivery_zone_name?` · ${order.delivery_zone_name}`:''}</span><strong>{money(order.delivery_fee)}</strong></div>}<div><span>Venta KYO</span><strong>{money(order.total)}</strong></div>{Number(order.tip_amount||0)>0&&<div><span>Propina</span><strong>{money(order.tip_amount)}</strong></div>}<div className="grand"><span>{paid?'TOTAL COBRADO':'TOTAL A COBRAR'}</span><strong>{money(chargedTotal(order))}</strong></div></div>
-    <footer className="kitchen-detail-footer"><button className="secondary" onClick={onClose}>Cerrar</button><button className="primary-print kitchen" onClick={onPrintKitchen}><Printer/> Imprimir ticket cocina</button><button className="primary-print sale" onClick={onPrintSale}><Printer/> Imprimir ticket venta</button>{actionLabel&&<button className={`detail-status-action ${order.status==='preparing'?'ready-action':pickup?'pickup-action':'route-action'}`} onClick={()=>onStatusAction(order)}>{order.status==='preparing'?<Check/>:pickup?<Check/>:<Bike/>}{actionLabel}</button>}</footer>
+    <footer className="kitchen-detail-footer"><button className="secondary" onClick={onClose}>Cerrar</button><button className="primary-print kitchen" onClick={onPrintKitchen}><Printer/> Imprimir ticket cocina</button><button className="primary-print sale" onClick={onPrintSale}><Printer/> Imprimir ticket venta</button>{actionLabel&&<button className={`detail-status-action ${order.status==='preparing'?'ready-action':pickup?'pickup-action':'route-action'}`} disabled={order.status==='preparing'&&needsAck} onClick={()=>onStatusAction(order)}>{order.status==='preparing'&&needsAck?<VolumeX/>:order.status==='preparing'?<Check/>:pickup?<Check/>:<Bike/>}{order.status==='preparing'&&needsAck?'Primero marca Enterado':actionLabel}</button>}</footer>
   </section></div>
 }
