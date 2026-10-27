@@ -452,6 +452,9 @@ function AdminSettings({catalog}){
   const [pointsAmount,setPointsAmount]=useState('')
   const [pointsBusy,setPointsBusy]=useState(false)
   const [pointsMessage,setPointsMessage]=useState('')
+  const [stampEmail,setStampEmail]=useState('')
+  const [stampBusy,setStampBusy]=useState(false)
+  const [stampMessage,setStampMessage]=useState('')
   const [businessHours,setBusinessHours]=useState(catalog.settings?.business_hours||defaultBusinessHours)
   const [imageOptimizeBusy,setImageOptimizeBusy]=useState(false)
   const [imageOptimizeProgress,setImageOptimizeProgress]=useState({done:0,total:0})
@@ -489,6 +492,24 @@ function AdminSettings({catalog}){
     const row=Array.isArray(data)?data[0]:data
     setPointsMessage(`${amount} puntos agregados a ${row?.email||email}. Nuevo saldo: ${row?.reward_points??'actualizado'} puntos.`)
     setPointsAmount('')
+  }
+
+  const addStampToUser=async()=>{
+    const email=stampEmail.trim().toLowerCase()
+    setStampMessage('')
+    if(!email)return setStampMessage('Escribe el correo del usuario.')
+    setStampBusy(true)
+    const {data,error}=await supabase.rpc('admin_add_reward_stamp',{p_email:email})
+    setStampBusy(false)
+    if(error)return setStampMessage(error.message)
+    const row=Array.isArray(data)?data[0]:data
+    const before=Number(row?.previous_stamps)
+    const after=Number(row?.reward_order_stamps)
+    if(Number.isFinite(before)&&Number.isFinite(after)){
+      setStampMessage(`Sello agregado a ${row?.email||email}. Tenía ${before} ${before===1?'sello':'sellos'} y ahora tiene ${after} ${after===1?'sello':'sellos'}.`)
+    }else{
+      setStampMessage(`Sello agregado a ${row?.email||email}. Saldo de sellos actualizado.`)
+    }
   }
 
   const optimizeExistingImages=async()=>{
@@ -641,6 +662,17 @@ function AdminSettings({catalog}){
           <button className="primary admin-add-points-btn" disabled={pointsBusy} onClick={addPointsToUser}>{pointsBusy?'Agregando...':'Agregar puntos'}</button>
         </div>
         {pointsMessage&&<div className="admin-points-message">{pointsMessage}</div>}
+      </div>
+    </details>
+
+    <details className="admin-settings-card settings-collapsible">
+      <summary><div className="settings-card-head"><span><Gift/></span><div><small>RETO KYO</small><h2>Agregar sellos a un usuario</h2><p>Busca la cuenta por correo y agrega un sello manualmente a su reto de pedidos.</p></div></div><span className="settings-expand-label">Desplegar</span></summary>
+      <div className="settings-collapsible-body">
+        <div className="admin-points-form">
+          <label className="admin-field"><span>Correo del usuario</span><input type="email" value={stampEmail} onChange={e=>setStampEmail(e.target.value)} placeholder="cliente@correo.com"/></label>
+          <button className="primary admin-add-points-btn" disabled={stampBusy} onClick={addStampToUser}>{stampBusy?'Agregando...':'Agregar 1 sello'}</button>
+        </div>
+        {stampMessage&&<div className="admin-points-message">{stampMessage}</div>}
       </div>
     </details>
   </div>
