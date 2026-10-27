@@ -78,7 +78,7 @@ const chargedTotal=order=>Number(order.total||0)+Number(order.tip_amount||0)
 const firstOrderDiscount=order=>Number(order?.first_order_discount||0)
 const escapeHtml=value=>String(value??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#039;'}[c]))
 const customizationGroups=item=>Object.entries((Array.isArray(item.customizations)?item.customizations:[]).reduce((groups,c)=>{const title=c.template_name||c.group_name||c.customization_name||c.title||'Personalización';(groups[title]??=[]).push(c);return groups},{}))
-const customizationLabel=c=>c.label||c.option_name||c.name||'Opción'
+const customizationLabel=c=>String(c.label||c.option_name||c.name||'Opción').replace(/^\s*\d+\s*[x×]\s*/i,'').trim()||'Opción'
 const customizationPrice=c=>Number(c.price??c.option_price??c.extra_price??0)
 const customizationLineTotal=c=>customizationPrice(c)*Math.max(1,Number(c.quantity||1))
 const itemExtrasPerUnit=item=>(Array.isArray(item.customizations)?item.customizations:[]).reduce((sum,c)=>sum+customizationLineTotal(c),0)
@@ -204,19 +204,30 @@ function kitchenItemLines(order){
 function saleItemLines(order){
   const lines=[]
   for(const i of expandedOrderItems(order)){
-    lines.push(...thermalWrap(i.product_name))
-    lines.push(...thermalPair('  Base c/u',thermalMoney(itemBasePrice(i))))
-    for(const [title,rows] of customizationGroups(i)){
-      lines.push(...thermalWrap(`  ${String(title).toUpperCase()}`))
-      for(const c of rows){
-        const q=Math.max(1,Number(c.quantity||1))
-        const price=customizationLineTotal(c)
-        lines.push(...thermalPair(`    ${q}x ${customizationLabel(c)}`,price>0?`+${thermalMoney(price)}`:'$0'))
+    const groups=customizationGroups(i)
+    const basePrice=itemBasePrice(i)
+    const hasCustomizations=groups.length>0
+
+    if(!hasCustomizations){
+      lines.push(...thermalPair(i.product_name,thermalMoney(Number(i.unit_price||0))))
+    }else{
+      lines.push(...thermalWrap(i.product_name))
+      if(basePrice>0)lines.push(...thermalPair('  Base c/u',thermalMoney(basePrice)))
+
+      for(const [title,rows] of groups){
+        const visibleRows=basePrice<=0?rows.filter(c=>customizationLineTotal(c)>0):rows
+        if(!visibleRows.length)continue
+        lines.push(...thermalWrap(`  ${String(title).toUpperCase()}`))
+        for(const c of visibleRows){
+          const q=Math.max(1,Number(c.quantity||1))
+          const price=customizationLineTotal(c)
+          lines.push(...thermalPair(`    ${q}x ${customizationLabel(c)}`,price>0?`+${thermalMoney(price)}`:'$0'))
+        }
       }
     }
-    lines.push(...thermalPair('  Importe producto',thermalMoney(Number(i.unit_price||0))))
+
     if(Number(i._promo_free_qty||0)>0){
-      const freeBase=Number(i._catalog_base_price??itemBasePrice(i))
+      const freeBase=Number(i._catalog_base_price??basePrice)
       lines.push(...thermalPair('  PROMO 3x2: base gratis', `-${thermalMoney(freeBase)}`))
       if(itemExtrasPerUnit(i)>0)lines.push(...thermalWrap('    Personalizaciones se cobran normal'))
     }
@@ -297,10 +308,10 @@ function printSaleTicket(order){
   const paymentStatus=isPaid(order)?`PAGADO - ${method}`:methodKey==='terminal'?'COBRAR CON TERMINAL':methodKey==='cash'?'COBRAR EN EFECTIVO':'PAGO CON TARJETA PENDIENTE'
   const lines=[
     ...ticketHeaderLines(order,'TICKET DE VENTA'),
-    ...saleItemLines(order),
-    ...thermalPair('PRODUCTOS ANTES PROMO',thermalMoney(subtotalBeforePromo(order)))
+    ...saleItemLines(order)
   ]
   if(promoDiscount(order)>0){
+    lines.push(...thermalPair('PRODUCTOS ANTES PROMO',thermalMoney(subtotalBeforePromo(order))))
     lines.push(...thermalPair('PROMO 3x2',`-${thermalMoney(promoDiscount(order))}`))
     lines.push(...thermalPair('SUBTOTAL CON PROMO',thermalMoney(order.subtotal)))
   }else{

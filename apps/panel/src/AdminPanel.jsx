@@ -27,7 +27,7 @@ const kitchenPrepLabel=order=>order?.kitchen_ready_at?formatKitchenDuration(kitc
 const expandedItemUnits=item=>Array.from({length:Math.max(1,Number(item?.quantity||1))},(_,unitIndex)=>({...item,quantity:1,_unit_index:unitIndex}))
 const expandedOrderItems=order=>(order?.order_items||[]).flatMap(expandedItemUnits)
 const customizationGroups=item=>Object.entries((Array.isArray(item?.customizations)?item.customizations:[]).reduce((groups,c)=>{const title=c.template_name||c.group_name||c.customization_name||c.title||'Personalización';(groups[title]??=[]).push(c);return groups},{}))
-const customizationLabel=c=>c.label||c.option_name||c.name||'Opción'
+const customizationLabel=c=>String(c.label||c.option_name||c.name||'Opción').replace(/^\s*\d+\s*[x×]\s*/i,'').trim()||'Opción'
 const customizationQty=c=>Math.max(1,Number(c.quantity||1))
 
 const defaultBusinessHours={
